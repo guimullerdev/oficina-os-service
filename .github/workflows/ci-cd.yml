@@ -3,6 +3,14 @@ name: CI/CD
 on:
   push:
     branches: [main, develop]
+    # Um merge que mexe só em documentação não precisa buildar imagem nem
+    # fazer deploy. O filtro fica deliberadamente só no push: em
+    # pull_request, paths-ignore faria o workflow nem iniciar num PR só de
+    # docs, e o required status check (Fase 6) ficaria pendente para sempre,
+    # travando o merge.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
   pull_request:
     branches: [main, develop]
   # Permite reexecutar o deploy sem precisar de um commit vazio — útil para
