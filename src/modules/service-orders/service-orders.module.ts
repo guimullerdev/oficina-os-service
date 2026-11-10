@@ -34,6 +34,8 @@ import { GetOsAcompanhamentoUseCase } from './application/use-cases/get-os-acomp
 import { GetTempoMedioOsUseCase } from './application/use-cases/get-tempo-medio-os.usecase';
 import { ConsultaPublicaOsUseCase } from './application/use-cases/consulta-publica-os.usecase';
 import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/processar-webhook-notificacao.usecase';
+import { GetSagaUseCase } from './application/saga/get-saga.usecase';
+import { SagaPrismaRepository } from './application/saga/saga.repository';
 
 @Module({
     imports: [PrismaModule, VehiclesModule, CustomersModule],
@@ -64,6 +66,8 @@ import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/proc
         GetTempoMedioOsUseCase,
         ConsultaPublicaOsUseCase,
         ProcessarWebhookNotificacaoUseCase,
+        GetSagaUseCase,
+        SagaPrismaRepository,
         {
             provide: ORDEM_DE_SERVICO_REPOSITORY,
             useClass: OrdemDeServicoPrismaRepository,

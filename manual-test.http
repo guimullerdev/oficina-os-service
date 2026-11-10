@@ -213,6 +213,10 @@ Authorization: Bearer {{token}}
 GET {{baseUrl}}/os/{{osId}}
 Authorization: Bearer {{token}}
 
+### 4f. Consultar saga da OS (404 se não houver)
+GET {{baseUrl}}/os/{{osId}}/saga
+Authorization: Bearer {{token}}
+
 
 ###############################################################################
 # 5. ORDEM DE SERVIÇO — adicionar itens
