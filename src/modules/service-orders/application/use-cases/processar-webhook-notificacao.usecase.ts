@@ -10,7 +10,10 @@ import {
   ORDEM_DE_SERVICO_REPOSITORY,
   IOrdemDeServicoRepository,
 } from '../../domain/repositories/service-orders.repository.interface';
-import { OrdemDeServico, StatusOS } from '../../domain/entities/service-orders.entity';
+import {
+  OrdemDeServico,
+  StatusOS,
+} from '../../domain/entities/service-orders.entity';
 import { WebhookAcao } from '../dto/webhook-notificacao.dto';
 import { OsStatusMetrics } from '../os-status-metrics.service';
 

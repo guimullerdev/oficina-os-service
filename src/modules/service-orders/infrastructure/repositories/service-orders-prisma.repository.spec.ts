@@ -282,7 +282,9 @@ describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
-      historicoStatusOS: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      historicoStatusOS: {
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     const prisma = {
       $transaction: jest.fn(),
@@ -300,7 +302,9 @@ describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
     return { repo, prisma, tx };
   }
 
-  const expectNoOwnTransaction = (prisma: ReturnType<typeof setupTx>['prisma']) => {
+  const expectNoOwnTransaction = (
+    prisma: ReturnType<typeof setupTx>['prisma'],
+  ) => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.ordemDeServico.findUnique).not.toHaveBeenCalled();
     expect(prisma.ordemDeServico.updateMany).not.toHaveBeenCalled();

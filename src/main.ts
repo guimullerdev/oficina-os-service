@@ -20,15 +20,21 @@ async function bootstrap() {
 
   // HttpExceptionFilter é registrado via APP_FILTER no AppModule, para
   // receber o PinoLogger por injeção.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
 
   const config = new DocumentBuilder()
     .addBearerAuth()
     .setTitle('Oficina OS Service')
     .setDescription(
       'API para gestão de ordens de serviço de uma oficina mecânica. ' +
-      'Inclui CRUD de clientes e veículos, além do ciclo de vida da OS ' +
-      '(abertura → diagnóstico → aprovação → execução → entrega).',
+        'Inclui CRUD de clientes e veículos, além do ciclo de vida da OS ' +
+        '(abertura → diagnóstico → aprovação → execução → entrega).',
     )
     .setVersion('1.0')
     .addTag('auth', 'Autenticação e emissão de tokens')

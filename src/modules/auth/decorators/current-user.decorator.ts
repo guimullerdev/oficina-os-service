@@ -11,19 +11,19 @@ import { CLIENTE_ROLE, TokenRole } from '../domain/enums/user-role.enum';
  * traz também o `documento` (ver ADR 0001).
  */
 export interface AuthenticatedActor {
-    sub: string;
-    role: TokenRole;
-    email?: string;
-    documento?: string;
+  sub: string;
+  role: TokenRole;
+  email?: string;
+  documento?: string;
 }
 
 export const CurrentUser = createParamDecorator(
-    (_data: unknown, ctx: ExecutionContext): AuthenticatedActor => {
-        const request = ctx.switchToHttp().getRequest<Request>();
-        return (request as unknown as { user: AuthenticatedActor }).user;
-    },
+  (_data: unknown, ctx: ExecutionContext): AuthenticatedActor => {
+    const request = ctx.switchToHttp().getRequest<Request>();
+    return (request as unknown as { user: AuthenticatedActor }).user;
+  },
 );
 
 export function isCliente(actor: AuthenticatedActor | undefined): boolean {
-    return actor?.role === CLIENTE_ROLE;
+  return actor?.role === CLIENTE_ROLE;
 }

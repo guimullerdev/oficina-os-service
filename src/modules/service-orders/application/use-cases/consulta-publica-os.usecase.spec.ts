@@ -2,44 +2,48 @@ import { NotFoundException } from '@nestjs/common';
 import { ConsultaPublicaOsUseCase } from './consulta-publica-os.usecase';
 
 const makeOsPrisma = (overrides: Record<string, unknown> = {}) => ({
-    numero: 'OS-2024-000001',
-    status: 'RECEBIDA',
-    dataAbertura: new Date('2024-01-01'),
-    cliente: { documento: '12345678901' },
-    veiculo: { placa: 'ABC-1234', marca: 'Toyota', modelo: 'Corolla' },
-    ...overrides,
+  numero: 'OS-2024-000001',
+  status: 'RECEBIDA',
+  dataAbertura: new Date('2024-01-01'),
+  cliente: { documento: '12345678901' },
+  veiculo: { placa: 'ABC-1234', marca: 'Toyota', modelo: 'Corolla' },
+  ...overrides,
 });
 
 const makePrisma = (findFirstResult: unknown) => ({
-    ordemDeServico: { findFirst: jest.fn().mockResolvedValue(findFirstResult) },
+  ordemDeServico: { findFirst: jest.fn().mockResolvedValue(findFirstResult) },
 });
 
 describe('ConsultaPublicaOsUseCase', () => {
-    it('returns OS data when numero and documento match', async () => {
-        const raw = makeOsPrisma();
-        const prisma = makePrisma(raw);
-        const useCase = new ConsultaPublicaOsUseCase(prisma as any);
+  it('returns OS data when numero and documento match', async () => {
+    const raw = makeOsPrisma();
+    const prisma = makePrisma(raw);
+    const useCase = new ConsultaPublicaOsUseCase(prisma as any);
 
-        const result = await useCase.execute('OS-2024-000001', '123.456.789-01');
+    const result = await useCase.execute('OS-2024-000001', '123.456.789-01');
 
-        expect(result.numero).toBe('OS-2024-000001');
-        expect(result.status).toBe('RECEBIDA');
-        expect(result.veiculo.placa).toBe('ABC-1234');
-        expect(result).not.toHaveProperty('orcamento');
-    });
+    expect(result.numero).toBe('OS-2024-000001');
+    expect(result.status).toBe('RECEBIDA');
+    expect(result.veiculo.placa).toBe('ABC-1234');
+    expect(result).not.toHaveProperty('orcamento');
+  });
 
-    it('throws NotFoundException when OS not found', async () => {
-        const prisma = makePrisma(null);
-        const useCase = new ConsultaPublicaOsUseCase(prisma as any);
+  it('throws NotFoundException when OS not found', async () => {
+    const prisma = makePrisma(null);
+    const useCase = new ConsultaPublicaOsUseCase(prisma as any);
 
-        await expect(useCase.execute('OS-9999', '12345678901')).rejects.toThrow(NotFoundException);
-    });
+    await expect(useCase.execute('OS-9999', '12345678901')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
 
-    it('throws NotFoundException when documento does not match', async () => {
-        const raw = makeOsPrisma();
-        const prisma = makePrisma(raw);
-        const useCase = new ConsultaPublicaOsUseCase(prisma as any);
+  it('throws NotFoundException when documento does not match', async () => {
+    const raw = makeOsPrisma();
+    const prisma = makePrisma(raw);
+    const useCase = new ConsultaPublicaOsUseCase(prisma as any);
 
-        await expect(useCase.execute('OS-2024-000001', '99999999999')).rejects.toThrow(NotFoundException);
-    });
+    await expect(
+      useCase.execute('OS-2024-000001', '99999999999'),
+    ).rejects.toThrow(NotFoundException);
+  });
 });

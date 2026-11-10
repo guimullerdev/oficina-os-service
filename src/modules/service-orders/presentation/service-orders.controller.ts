@@ -15,7 +15,17 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiOkResponse, ApiNotFoundResponse, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiOkResponse,
+  ApiNotFoundResponse,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiHeader,
+} from '@nestjs/swagger';
 
 import { CreateOrdemDeServicoUseCase } from '../application/use-cases/create-service-orders.usecase';
 import { GetOrdemDeServicoUseCase } from '../application/use-cases/get-service-orders.usecase';
@@ -47,12 +57,16 @@ import { WebhookAuthGuard } from './guards/webhook-auth.guard';
 import { OsStatusMetricsInterceptor } from './interceptors/os-status-metrics.interceptor';
 import { StatusOS } from '../domain/entities/service-orders.entity';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { CLIENTE_ROLE, STAFF_ROLES, UserRole } from '../../auth/domain/enums/user-role.enum';
+import {
+  CLIENTE_ROLE,
+  STAFF_ROLES,
+  UserRole,
+} from '../../auth/domain/enums/user-role.enum';
 import { Public } from '../../auth/decorators/public.decorator';
 import {
-    AuthenticatedActor,
-    CurrentUser,
-    isCliente,
+  AuthenticatedActor,
+  CurrentUser,
+  isCliente,
 } from '../../auth/decorators/current-user.decorator';
 
 // Emite o evento de transição de status em toda rota que devolve uma OS —
@@ -62,282 +76,385 @@ import {
 @ApiBearerAuth()
 @Controller('os')
 export class ServiceOrdersController {
-    constructor(
-        private readonly createOsUseCase: CreateOrdemDeServicoUseCase,
-        private readonly getOsUseCase: GetOrdemDeServicoUseCase,
-        private readonly addServicoUseCase: AddServicoToOsUseCase,
-        private readonly removeServicoUseCase: RemoveServicoFromOsUseCase,
-        private readonly addPecaUseCase: AddPecaToOsUseCase,
-        private readonly removePecaUseCase: RemovePecaFromOsUseCase,
-        private readonly startDiagnosisUseCase: StartDiagnosisUseCase,
-        private readonly finishDiagnosisUseCase: FinishDiagnosisUseCase,
-        private readonly iniciarExecucaoUseCase: IniciarExecucaoUseCase,
-        private readonly realizarServicoUseCase: RealizarServicoUseCase,
-        private readonly utilizarPecaUseCase: UtilizarPecaUseCase,
-        private readonly finishOrderUseCase: FinishOrderUseCase,
-        private readonly liberarVeiculoUseCase: LiberarVeiculoUseCase,
-        private readonly deliverOrderUseCase: DeliverOrderUseCase,
-        private readonly getAcompanhamentoUseCase: GetOsAcompanhamentoUseCase,
-        private readonly getTempoMedioUseCase: GetTempoMedioOsUseCase,
-        private readonly consultaPublicaUseCase: ConsultaPublicaOsUseCase,
-        private readonly processarWebhookUseCase: ProcessarWebhookNotificacaoUseCase,
-        private readonly getSagaUseCase: GetSagaUseCase,
-    ) {}
+  constructor(
+    private readonly createOsUseCase: CreateOrdemDeServicoUseCase,
+    private readonly getOsUseCase: GetOrdemDeServicoUseCase,
+    private readonly addServicoUseCase: AddServicoToOsUseCase,
+    private readonly removeServicoUseCase: RemoveServicoFromOsUseCase,
+    private readonly addPecaUseCase: AddPecaToOsUseCase,
+    private readonly removePecaUseCase: RemovePecaFromOsUseCase,
+    private readonly startDiagnosisUseCase: StartDiagnosisUseCase,
+    private readonly finishDiagnosisUseCase: FinishDiagnosisUseCase,
+    private readonly iniciarExecucaoUseCase: IniciarExecucaoUseCase,
+    private readonly realizarServicoUseCase: RealizarServicoUseCase,
+    private readonly utilizarPecaUseCase: UtilizarPecaUseCase,
+    private readonly finishOrderUseCase: FinishOrderUseCase,
+    private readonly liberarVeiculoUseCase: LiberarVeiculoUseCase,
+    private readonly deliverOrderUseCase: DeliverOrderUseCase,
+    private readonly getAcompanhamentoUseCase: GetOsAcompanhamentoUseCase,
+    private readonly getTempoMedioUseCase: GetTempoMedioOsUseCase,
+    private readonly consultaPublicaUseCase: ConsultaPublicaOsUseCase,
+    private readonly processarWebhookUseCase: ProcessarWebhookNotificacaoUseCase,
+    private readonly getSagaUseCase: GetSagaUseCase,
+  ) {}
 
-    @Post('webhook/notificacao')
-    @HttpCode(HttpStatus.OK)
-    @Public()
-    @UseGuards(WebhookAuthGuard)
-    @ApiOperation({ summary: 'Webhook de notificação externa — aprova ou reprova orçamento de uma OS' })
-    @ApiHeader({ name: 'Authorization', description: 'Bearer <WEBHOOK_SECRET>', required: true })
-    @ApiResponse({ status: 200, description: 'Ação aplicada ou ignorada (idempotente)' })
-    @ApiResponse({ status: 401, description: 'Token inválido ou ausente' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    @ApiResponse({ status: 422, description: 'OS não está em AGUARDANDO_APROVACAO ou ação conflitante' })
-    webhookNotificacao(@Body() dto: WebhookNotificacaoDto, @Ip() ip: string) {
-        return this.processarWebhookUseCase.execute(dto, ip);
-    }
+  @Post('webhook/notificacao')
+  @HttpCode(HttpStatus.OK)
+  @Public()
+  @UseGuards(WebhookAuthGuard)
+  @ApiOperation({
+    summary:
+      'Webhook de notificação externa — aprova ou reprova orçamento de uma OS',
+  })
+  @ApiHeader({
+    name: 'Authorization',
+    description: 'Bearer <WEBHOOK_SECRET>',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Ação aplicada ou ignorada (idempotente)',
+  })
+  @ApiResponse({ status: 401, description: 'Token inválido ou ausente' })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  @ApiResponse({
+    status: 422,
+    description: 'OS não está em AGUARDANDO_APROVACAO ou ação conflitante',
+  })
+  webhookNotificacao(@Body() dto: WebhookNotificacaoDto, @Ip() ip: string) {
+    return this.processarWebhookUseCase.execute(dto, ip);
+  }
 
-    @Post()
-    @HttpCode(HttpStatus.CREATED)
-    @ApiOperation({ summary: 'Abrir nova ordem de serviço' })
-    @ApiResponse({ status: 201, description: 'OS criada com status RECEBIDA' })
-    @ApiResponse({ status: 400, description: 'Dados inválidos' })
-    create(@Body() dto: CreateOsDto) {
-        return this.createOsUseCase.execute(dto);
-    }
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Abrir nova ordem de serviço' })
+  @ApiResponse({ status: 201, description: 'OS criada com status RECEBIDA' })
+  @ApiResponse({ status: 400, description: 'Dados inválidos' })
+  create(@Body() dto: CreateOsDto) {
+    return this.createOsUseCase.execute(dto);
+  }
 
-    /**
-     * Quando quem chama é o cliente, devolve o id dele para restringir a
-     * consulta às próprias OS; para staff devolve `undefined`, ou seja, sem
-     * restrição. O `sub` de um token de cliente é o `clienteId` (ver ADR 0001).
-     */
-    private escopoDoCliente(actor: AuthenticatedActor): string | undefined {
-        return isCliente(actor) ? actor.sub : undefined;
-    }
+  /**
+   * Quando quem chama é o cliente, devolve o id dele para restringir a
+   * consulta às próprias OS; para staff devolve `undefined`, ou seja, sem
+   * restrição. O `sub` de um token de cliente é o `clienteId` (ver ADR 0001).
+   */
+  private escopoDoCliente(actor: AuthenticatedActor): string | undefined {
+    return isCliente(actor) ? actor.sub : undefined;
+  }
 
-    @Get('me')
-    @Roles(CLIENTE_ROLE)
-    @ApiOperation({
-        summary: 'Listar as ordens de serviço do cliente autenticado',
-        description:
-            'Exclusiva do cliente: usa o `sub` do token emitido pela Lambda de ' +
-            'autenticação por CPF, então não há como listar OS de outra pessoa.',
-    })
-    @ApiResponse({ status: 200, description: 'OS do próprio cliente' })
-    @ApiResponse({ status: 403, description: 'Token não é de cliente' })
-    findMinhas(@CurrentUser() actor: AuthenticatedActor) {
-        return this.getOsUseCase.executeAll({ clienteId: actor.sub, incluirArquivadas: true });
-    }
+  @Get('me')
+  @Roles(CLIENTE_ROLE)
+  @ApiOperation({
+    summary: 'Listar as ordens de serviço do cliente autenticado',
+    description:
+      'Exclusiva do cliente: usa o `sub` do token emitido pela Lambda de ' +
+      'autenticação por CPF, então não há como listar OS de outra pessoa.',
+  })
+  @ApiResponse({ status: 200, description: 'OS do próprio cliente' })
+  @ApiResponse({ status: 403, description: 'Token não é de cliente' })
+  findMinhas(@CurrentUser() actor: AuthenticatedActor) {
+    return this.getOsUseCase.executeAll({
+      clienteId: actor.sub,
+      incluirArquivadas: true,
+    });
+  }
 
-    @Get()
-    @Roles(...STAFF_ROLES)
-    @ApiOperation({ summary: 'Listar ordens de serviço com filtros opcionais. Por padrão exclui OS arquivadas (FINALIZADA/ENTREGUE). Ordenadas por prioridade: EM_EXECUCAO > AGUARDANDO_APROVACAO > EM_DIAGNOSTICO > RECEBIDA, mais antigas primeiro dentro de cada grupo.' })
-    @ApiQuery({ name: 'status', required: false, enum: StatusOS })
-    @ApiQuery({ name: 'clienteId', required: false })
-    @ApiQuery({ name: 'veiculoId', required: false })
-    @ApiQuery({ name: 'incluirArquivadas', required: false, type: Boolean, description: 'Se true, inclui OS FINALIZADA e ENTREGUE na listagem' })
-    @ApiResponse({ status: 200, description: 'Lista de OS ordenada por prioridade de status' })
-    findAll(
-        @Query('status') status?: StatusOS,
-        @Query('clienteId') clienteId?: string,
-        @Query('veiculoId') veiculoId?: string,
-        @Query('incluirArquivadas', new DefaultValuePipe(false), ParseBoolPipe) incluirArquivadas?: boolean,
-    ) {
-        return this.getOsUseCase.executeAll({ status, clienteId, veiculoId, incluirArquivadas });
-    }
+  @Get()
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({
+    summary:
+      'Listar ordens de serviço com filtros opcionais. Por padrão exclui OS arquivadas (FINALIZADA/ENTREGUE). Ordenadas por prioridade: EM_EXECUCAO > AGUARDANDO_APROVACAO > EM_DIAGNOSTICO > RECEBIDA, mais antigas primeiro dentro de cada grupo.',
+  })
+  @ApiQuery({ name: 'status', required: false, enum: StatusOS })
+  @ApiQuery({ name: 'clienteId', required: false })
+  @ApiQuery({ name: 'veiculoId', required: false })
+  @ApiQuery({
+    name: 'incluirArquivadas',
+    required: false,
+    type: Boolean,
+    description: 'Se true, inclui OS FINALIZADA e ENTREGUE na listagem',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de OS ordenada por prioridade de status',
+  })
+  findAll(
+    @Query('status') status?: StatusOS,
+    @Query('clienteId') clienteId?: string,
+    @Query('veiculoId') veiculoId?: string,
+    @Query('incluirArquivadas', new DefaultValuePipe(false), ParseBoolPipe)
+    incluirArquivadas?: boolean,
+  ) {
+    return this.getOsUseCase.executeAll({
+      status,
+      clienteId,
+      veiculoId,
+      incluirArquivadas,
+    });
+  }
 
-    @Get('consulta')
-    @Public()
-    @ApiOperation({
-        summary: 'Consulta pública da OS pelo cliente (sem autenticação)',
-        description:
-            'Pública por design: alimenta a página de acompanhamento, no mesmo modelo de ' +
-            'rastreio de encomenda. Exige o par número da OS + documento do cliente, e o ' +
-            'use case só devolve a OS se os dois baterem.',
-    })
-    @ApiQuery({ name: 'numero', required: true, description: 'Número da OS' })
-    @ApiQuery({ name: 'documento', required: true, description: 'CPF ou CNPJ do cliente (somente dígitos)' })
-    @ApiResponse({ status: 200, description: 'Status e dados públicos da OS' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada ou documento não confere' })
-    consultaPublica(
-        @Query('numero') numero: string,
-        @Query('documento') documento: string,
-    ) {
-        return this.consultaPublicaUseCase.execute(numero, documento);
-    }
+  @Get('consulta')
+  @Public()
+  @ApiOperation({
+    summary: 'Consulta pública da OS pelo cliente (sem autenticação)',
+    description:
+      'Pública por design: alimenta a página de acompanhamento, no mesmo modelo de ' +
+      'rastreio de encomenda. Exige o par número da OS + documento do cliente, e o ' +
+      'use case só devolve a OS se os dois baterem.',
+  })
+  @ApiQuery({ name: 'numero', required: true, description: 'Número da OS' })
+  @ApiQuery({
+    name: 'documento',
+    required: true,
+    description: 'CPF ou CNPJ do cliente (somente dígitos)',
+  })
+  @ApiResponse({ status: 200, description: 'Status e dados públicos da OS' })
+  @ApiResponse({
+    status: 404,
+    description: 'OS não encontrada ou documento não confere',
+  })
+  consultaPublica(
+    @Query('numero') numero: string,
+    @Query('documento') documento: string,
+  ) {
+    return this.consultaPublicaUseCase.execute(numero, documento);
+  }
 
-    @Get('metricas/tempo-medio')
-    @ApiOperation({ summary: 'Tempo médio de execução de OS finalizadas' })
-    @ApiQuery({ name: 'dataInicio', required: false, description: 'Filtro: data de abertura a partir de (ISO 8601)' })
-    @ApiQuery({ name: 'dataFim', required: false, description: 'Filtro: data de abertura até (ISO 8601)' })
-    @ApiResponse({ status: 200, description: 'Tempo médio calculado' })
-    getTempoMedio(
-        @Query('dataInicio') dataInicio?: string,
-        @Query('dataFim') dataFim?: string,
-    ) {
-        return this.getTempoMedioUseCase.execute({
-            dataInicio: dataInicio ? new Date(dataInicio) : undefined,
-            dataFim: dataFim ? new Date(dataFim) : undefined,
-        });
-    }
+  @Get('metricas/tempo-medio')
+  @ApiOperation({ summary: 'Tempo médio de execução de OS finalizadas' })
+  @ApiQuery({
+    name: 'dataInicio',
+    required: false,
+    description: 'Filtro: data de abertura a partir de (ISO 8601)',
+  })
+  @ApiQuery({
+    name: 'dataFim',
+    required: false,
+    description: 'Filtro: data de abertura até (ISO 8601)',
+  })
+  @ApiResponse({ status: 200, description: 'Tempo médio calculado' })
+  getTempoMedio(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    return this.getTempoMedioUseCase.execute({
+      dataInicio: dataInicio ? new Date(dataInicio) : undefined,
+      dataFim: dataFim ? new Date(dataFim) : undefined,
+    });
+  }
 
-    @Get(':id')
-    @ApiOperation({ summary: 'Buscar OS por ID' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'OS encontrada com itens' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    findOne(@Param('id') id: string) {
-        return this.getOsUseCase.execute(id);
-    }
+  @Get(':id')
+  @ApiOperation({ summary: 'Buscar OS por ID' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({ status: 200, description: 'OS encontrada com itens' })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  findOne(@Param('id') id: string) {
+    return this.getOsUseCase.execute(id);
+  }
 
-    @Get(':id/status')
-    @ApiOperation({ summary: 'Consultar status atual da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atual e histórico de transições' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    getStatus(@CurrentUser() actor: AuthenticatedActor, @Param('id') id: string) {
-        return this.getAcompanhamentoUseCase.execute(id, this.escopoDoCliente(actor));
-    }
+  @Get(':id/status')
+  @ApiOperation({ summary: 'Consultar status atual da OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atual e histórico de transições',
+  })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  getStatus(@CurrentUser() actor: AuthenticatedActor, @Param('id') id: string) {
+    return this.getAcompanhamentoUseCase.execute(
+      id,
+      this.escopoDoCliente(actor),
+    );
+  }
 
-    @Get(':id/acompanhamento')
-    @ApiOperation({ summary: 'Consultar acompanhamento da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atual e histórico de transições' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    getAcompanhamento(@CurrentUser() actor: AuthenticatedActor, @Param('id') id: string) {
-        return this.getAcompanhamentoUseCase.execute(id, this.escopoDoCliente(actor));
-    }
+  @Get(':id/acompanhamento')
+  @ApiOperation({ summary: 'Consultar acompanhamento da OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atual e histórico de transições',
+  })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  getAcompanhamento(
+    @CurrentUser() actor: AuthenticatedActor,
+    @Param('id') id: string,
+  ) {
+    return this.getAcompanhamentoUseCase.execute(
+      id,
+      this.escopoDoCliente(actor),
+    );
+  }
 
-    @Get(':id/saga')
-    @Roles(...STAFF_ROLES)
-    @ApiOperation({ summary: 'Consultar a saga (passos e estado) da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiOkResponse({ type: SagaResponseDto, description: 'Saga da OS com seus passos' })
-    @ApiNotFoundResponse({ description: 'OS sem saga' })
-    getSaga(@Param('id') id: string) {
-        return this.getSagaUseCase.execute(id);
-    }
+  @Get(':id/saga')
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Consultar a saga (passos e estado) da OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiOkResponse({
+    type: SagaResponseDto,
+    description: 'Saga da OS com seus passos',
+  })
+  @ApiNotFoundResponse({ description: 'OS sem saga' })
+  getSaga(@Param('id') id: string) {
+    return this.getSagaUseCase.execute(id);
+  }
 
-    @Post(':id/servicos')
-    @HttpCode(HttpStatus.CREATED)
-    @ApiOperation({ summary: 'Adicionar serviço à OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 201, description: 'Serviço adicionado' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    @ApiResponse({ status: 409, description: 'Serviço já adicionado à OS' })
-    addServico(@Param('id') id: string, @Body() dto: AddServicoDto) {
-        return this.addServicoUseCase.execute(id, dto.servicoId, dto.precoUnitario);
-    }
+  @Post(':id/servicos')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Adicionar serviço à OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({ status: 201, description: 'Serviço adicionado' })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  @ApiResponse({ status: 409, description: 'Serviço já adicionado à OS' })
+  addServico(@Param('id') id: string, @Body() dto: AddServicoDto) {
+    return this.addServicoUseCase.execute(id, dto.servicoId, dto.precoUnitario);
+  }
 
-    @Delete(':id/servicos/:itemId')
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: 'Remover serviço da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiParam({ name: 'itemId', description: 'servicoId do item' })
-    @ApiResponse({ status: 200, description: 'Serviço removido' })
-    @ApiResponse({ status: 404, description: 'OS ou serviço não encontrado na OS' })
-    removeServico(@Param('id') id: string, @Param('itemId') itemId: string) {
-        return this.removeServicoUseCase.execute(id, itemId);
-    }
+  @Delete(':id/servicos/:itemId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remover serviço da OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiParam({ name: 'itemId', description: 'servicoId do item' })
+  @ApiResponse({ status: 200, description: 'Serviço removido' })
+  @ApiResponse({
+    status: 404,
+    description: 'OS ou serviço não encontrado na OS',
+  })
+  removeServico(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.removeServicoUseCase.execute(id, itemId);
+  }
 
-    @Post(':id/pecas')
-    @HttpCode(HttpStatus.CREATED)
-    @ApiOperation({ summary: 'Adicionar peça à OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 201, description: 'Peça adicionada' })
-    @ApiResponse({ status: 400, description: 'Quantidade < 1 ou preço unitário inválido' })
-    @ApiResponse({ status: 404, description: 'OS não encontrada' })
-    @ApiResponse({ status: 409, description: 'Peça já adicionada à OS ou quantidade inválida' })
-    addPeca(@Param('id') id: string, @Body() dto: AddPecaDto) {
-        return this.addPecaUseCase.execute(id, dto.pecaId, dto.quantidade, dto.precoUnitario);
-    }
+  @Post(':id/pecas')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Adicionar peça à OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({ status: 201, description: 'Peça adicionada' })
+  @ApiResponse({
+    status: 400,
+    description: 'Quantidade < 1 ou preço unitário inválido',
+  })
+  @ApiResponse({ status: 404, description: 'OS não encontrada' })
+  @ApiResponse({
+    status: 409,
+    description: 'Peça já adicionada à OS ou quantidade inválida',
+  })
+  addPeca(@Param('id') id: string, @Body() dto: AddPecaDto) {
+    return this.addPecaUseCase.execute(
+      id,
+      dto.pecaId,
+      dto.quantidade,
+      dto.precoUnitario,
+    );
+  }
 
-    @Delete(':id/pecas/:itemId')
-    @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: 'Remover peça da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiParam({ name: 'itemId', description: 'pecaId do item' })
-    @ApiResponse({ status: 200, description: 'Peça removida' })
-    @ApiResponse({ status: 404, description: 'OS ou peça não encontrada na OS' })
-    removePeca(@Param('id') id: string, @Param('itemId') itemId: string) {
-        return this.removePecaUseCase.execute(id, itemId);
-    }
+  @Delete(':id/pecas/:itemId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remover peça da OS' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiParam({ name: 'itemId', description: 'pecaId do item' })
+  @ApiResponse({ status: 200, description: 'Peça removida' })
+  @ApiResponse({ status: 404, description: 'OS ou peça não encontrada na OS' })
+  removePeca(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.removePecaUseCase.execute(id, itemId);
+  }
 
-    @Patch(':id/iniciar-diagnostico')
-    @ApiOperation({ summary: 'Iniciar diagnóstico (RECEBIDA → EM_DIAGNOSTICO)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atualizado para EM_DIAGNOSTICO' })
-    @ApiResponse({ status: 422, description: 'Transição inválida' })
-    startDiagnosis(@Param('id') id: string) {
-        return this.startDiagnosisUseCase.execute(id);
-    }
+  @Patch(':id/iniciar-diagnostico')
+  @ApiOperation({ summary: 'Iniciar diagnóstico (RECEBIDA → EM_DIAGNOSTICO)' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atualizado para EM_DIAGNOSTICO',
+  })
+  @ApiResponse({ status: 422, description: 'Transição inválida' })
+  startDiagnosis(@Param('id') id: string) {
+    return this.startDiagnosisUseCase.execute(id);
+  }
 
-    @Patch(':id/concluir-diagnostico')
-    @ApiOperation({ summary: 'Concluir diagnóstico (EM_DIAGNOSTICO → AGUARDANDO_APROVACAO)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atualizado para AGUARDANDO_APROVACAO' })
-    @ApiResponse({ status: 422, description: 'Transição inválida' })
-    finishDiagnosis(@Param('id') id: string) {
-        return this.finishDiagnosisUseCase.execute(id);
-    }
+  @Patch(':id/concluir-diagnostico')
+  @ApiOperation({
+    summary: 'Concluir diagnóstico (EM_DIAGNOSTICO → AGUARDANDO_APROVACAO)',
+  })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atualizado para AGUARDANDO_APROVACAO',
+  })
+  @ApiResponse({ status: 422, description: 'Transição inválida' })
+  finishDiagnosis(@Param('id') id: string) {
+    return this.finishDiagnosisUseCase.execute(id);
+  }
 
-    @Patch(':id/iniciar-execucao')
-    @ApiOperation({ summary: 'Iniciar execução (APROVADA → EM_EXECUCAO)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atualizado para EM_EXECUCAO' })
-    @ApiResponse({ status: 422, description: 'Transição inválida' })
-    iniciarExecucao(@Param('id') id: string) {
-        return this.iniciarExecucaoUseCase.execute(id);
-    }
+  @Patch(':id/iniciar-execucao')
+  @ApiOperation({ summary: 'Iniciar execução (APROVADA → EM_EXECUCAO)' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atualizado para EM_EXECUCAO',
+  })
+  @ApiResponse({ status: 422, description: 'Transição inválida' })
+  iniciarExecucao(@Param('id') id: string) {
+    return this.iniciarExecucaoUseCase.execute(id);
+  }
 
-    @Patch(':id/servicos/:itemId/realizar')
-    @Roles(UserRole.MECANICO, UserRole.ADMIN)
-    @ApiOperation({ summary: 'Registrar execução de serviço (MECANICO ou ADMIN)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiParam({ name: 'itemId', description: 'ID do item de serviço' })
-    @ApiResponse({ status: 200, description: 'Execução registrada' })
-    realizarServico(
-        @Param('id') id: string,
-        @Param('itemId') itemId: string,
-        @Body() dto: RealizarServicoDto,
-    ) {
-        return this.realizarServicoUseCase.execute(id, itemId, new Date(dto.inicio), new Date(dto.fim));
-    }
+  @Patch(':id/servicos/:itemId/realizar')
+  @Roles(UserRole.MECANICO, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Registrar execução de serviço (MECANICO ou ADMIN)',
+  })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiParam({ name: 'itemId', description: 'ID do item de serviço' })
+  @ApiResponse({ status: 200, description: 'Execução registrada' })
+  realizarServico(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: RealizarServicoDto,
+  ) {
+    return this.realizarServicoUseCase.execute(
+      id,
+      itemId,
+      new Date(dto.inicio),
+      new Date(dto.fim),
+    );
+  }
 
-    @Patch(':id/pecas/:itemId/utilizar')
-    @Roles(UserRole.MECANICO, UserRole.ADMIN)
-    @ApiOperation({ summary: 'Marcar peça como utilizada (MECANICO ou ADMIN)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiParam({ name: 'itemId', description: 'ID do item de peça' })
-    @ApiResponse({ status: 200, description: 'Peça marcada como utilizada' })
-    utilizarPeca(@Param('id') id: string, @Param('itemId') itemId: string) {
-        return this.utilizarPecaUseCase.execute(id, itemId);
-    }
+  @Patch(':id/pecas/:itemId/utilizar')
+  @Roles(UserRole.MECANICO, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Marcar peça como utilizada (MECANICO ou ADMIN)' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiParam({ name: 'itemId', description: 'ID do item de peça' })
+  @ApiResponse({ status: 200, description: 'Peça marcada como utilizada' })
+  utilizarPeca(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.utilizarPecaUseCase.execute(id, itemId);
+  }
 
-    @Patch(':id/finalizar-execucao')
-    @ApiOperation({ summary: 'Finalizar execução (EM_EXECUCAO → FINALIZADA)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Execução finalizada' })
-    @ApiResponse({ status: 422, description: 'Transição inválida' })
-    finalizarExecucao(@Param('id') id: string) {
-        return this.finishOrderUseCase.execute(id);
-    }
+  @Patch(':id/finalizar-execucao')
+  @ApiOperation({ summary: 'Finalizar execução (EM_EXECUCAO → FINALIZADA)' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({ status: 200, description: 'Execução finalizada' })
+  @ApiResponse({ status: 422, description: 'Transição inválida' })
+  finalizarExecucao(@Param('id') id: string) {
+    return this.finishOrderUseCase.execute(id);
+  }
 
-    @Patch(':id/liberar-veiculo')
-    @ApiOperation({ summary: 'Liberar veículo (pass-through, OS permanece FINALIZADA)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Veículo liberado' })
-    liberarVeiculo(@Param('id') id: string) {
-        return this.liberarVeiculoUseCase.execute(id);
-    }
+  @Patch(':id/liberar-veiculo')
+  @ApiOperation({
+    summary: 'Liberar veículo (pass-through, OS permanece FINALIZADA)',
+  })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({ status: 200, description: 'Veículo liberado' })
+  liberarVeiculo(@Param('id') id: string) {
+    return this.liberarVeiculoUseCase.execute(id);
+  }
 
-    @Patch(':id/entregar')
-    @ApiOperation({ summary: 'Entregar veículo (FINALIZADA → ENTREGUE)' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Veículo entregue; OS em estado final' })
-    @ApiResponse({ status: 422, description: 'Transição inválida' })
-    entregar(@Param('id') id: string) {
-        return this.deliverOrderUseCase.execute(id);
-    }
+  @Patch(':id/entregar')
+  @ApiOperation({ summary: 'Entregar veículo (FINALIZADA → ENTREGUE)' })
+  @ApiParam({ name: 'id', description: 'UUID da OS' })
+  @ApiResponse({
+    status: 200,
+    description: 'Veículo entregue; OS em estado final',
+  })
+  @ApiResponse({ status: 422, description: 'Transição inválida' })
+  entregar(@Param('id') id: string) {
+    return this.deliverOrderUseCase.execute(id);
+  }
 }

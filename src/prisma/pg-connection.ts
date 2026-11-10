@@ -20,19 +20,19 @@ const CA_BUNDLE_PATH = join(process.cwd(), 'certs', 'rds-global-bundle.pem');
  * container no desenvolvimento local.
  */
 export function buildPoolConfig(databaseUrl: string): PoolConfig {
-    const url = new URL(databaseUrl);
-    const sslmode = url.searchParams.get('sslmode');
-    url.searchParams.delete('sslmode');
+  const url = new URL(databaseUrl);
+  const sslmode = url.searchParams.get('sslmode');
+  url.searchParams.delete('sslmode');
 
-    const semTls = !sslmode || sslmode === 'disable';
-    if (semTls) {
-        return { connectionString: url.toString() };
-    }
+  const semTls = !sslmode || sslmode === 'disable';
+  if (semTls) {
+    return { connectionString: url.toString() };
+  }
 
-    return {
-        connectionString: url.toString(),
-        // rejectUnauthorized fica no default (true): com a CA correta em mãos
-        // não há motivo para abrir mão da validação de cadeia e de hostname.
-        ssl: { ca: readFileSync(CA_BUNDLE_PATH, 'utf8') },
-    };
+  return {
+    connectionString: url.toString(),
+    // rejectUnauthorized fica no default (true): com a CA correta em mãos
+    // não há motivo para abrir mão da validação de cadeia e de hostname.
+    ssl: { ca: readFileSync(CA_BUNDLE_PATH, 'utf8') },
+  };
 }

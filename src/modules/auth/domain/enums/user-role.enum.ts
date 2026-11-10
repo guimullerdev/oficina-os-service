@@ -3,9 +3,9 @@
  * são as roles que existem como linha na tabela `users`.
  */
 export enum UserRole {
-    ADMIN = 'ADMIN',
-    ATENDENTE = 'ATENDENTE',
-    MECANICO = 'MECANICO',
+  ADMIN = 'ADMIN',
+  ATENDENTE = 'ATENDENTE',
+  MECANICO = 'MECANICO',
 }
 
 /**
@@ -29,11 +29,11 @@ export type TokenRole = UserRole | typeof CLIENTE_ROLE;
 
 /** Perfis internos da oficina — quem opera o sistema. */
 export const STAFF_ROLES: readonly TokenRole[] = [
-    UserRole.ADMIN,
-    UserRole.ATENDENTE,
-    UserRole.MECANICO,
+  UserRole.ADMIN,
+  UserRole.ATENDENTE,
+  UserRole.MECANICO,
 ];
 
 export function isStaff(role: TokenRole | undefined): boolean {
-    return role !== undefined && STAFF_ROLES.includes(role);
+  return role !== undefined && STAFF_ROLES.includes(role);
 }

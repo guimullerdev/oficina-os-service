@@ -11,22 +11,19 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 
 @Module({
-    imports: [
-        PrismaModule,
-        JwtModule.register({}),
-    ],
-    controllers: [AuthController],
-    providers: [
-        RegisterUseCase,
-        LoginUseCase,
-        RefreshTokenUseCase,
-        JwtAuthGuard,
-        RolesGuard,
-        {
-            provide: 'UserRepository',
-            useClass: UserPrismaRepository,
-        },
-    ],
-    exports: [JwtAuthGuard, RolesGuard, JwtModule],
+  imports: [PrismaModule, JwtModule.register({})],
+  controllers: [AuthController],
+  providers: [
+    RegisterUseCase,
+    LoginUseCase,
+    RefreshTokenUseCase,
+    JwtAuthGuard,
+    RolesGuard,
+    {
+      provide: 'UserRepository',
+      useClass: UserPrismaRepository,
+    },
+  ],
+  exports: [JwtAuthGuard, RolesGuard, JwtModule],
 })
-export class AuthModule { }
+export class AuthModule {}
