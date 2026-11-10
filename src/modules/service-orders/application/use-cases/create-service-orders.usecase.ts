@@ -1,4 +1,5 @@
 import { Inject, Injectable, BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 
 import { ORDEM_DE_SERVICO_REPOSITORY, IOrdemDeServicoRepository } from '../../domain/repositories/service-orders.repository.interface';
 import { VEICULO_REPOSITORY, IVeiculoRepository } from '../../../vehicles/domain/repositories/vehicle.repository.interface';
@@ -7,6 +8,7 @@ import { OrdemDeServico } from '../../domain/entities/service-orders.entity';
 import { CreateOsDto } from '../dto/create-service-orders.dto';
 import { AddServicoToOsUseCase } from './add-service-to-order.usecase';
 import { AddPecaToOsUseCase } from './add-part-to-order.usecase';
+import { DomainEvent } from '../../../../shared/messaging/domain-event';
 
 @Injectable()
 export class CreateOrdemDeServicoUseCase {
@@ -21,7 +23,7 @@ export class CreateOrdemDeServicoUseCase {
         private readonly addPecaUseCase: AddPecaToOsUseCase,
     ) {}
 
-    async execute(dto: CreateOsDto): Promise<OrdemDeServico> {
+    async execute(dto: CreateOsDto, ctx?: { correlationId?: string; traceparent?: string }): Promise<OrdemDeServico> {
         const cliente = await this.clienteRepo.findById(dto.clienteId);
         if (!cliente) {
             throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado`);
@@ -48,7 +50,16 @@ export class CreateOrdemDeServicoUseCase {
             veiculoId: dto.veiculoId,
             descricaoProblema: dto.descricaoProblema,
         });
-        let saved = await this.repo.create(os);
+        const correlationId = ctx?.correlationId ?? randomUUID();
+        const evento: DomainEvent = {
+            evento: 'os.criada',
+            aggregateType: 'ordem_de_servico',
+            aggregateId: os.id,
+            payload: { id: os.id, numero: os.numero, clienteId: os.clienteId, veiculoId: os.veiculoId, status: os.status },
+            correlationId,
+            traceparent: ctx?.traceparent,
+        };
+        let saved = await this.repo.create(os, [evento]);
 
         for (const s of dto.servicos ?? []) {
             saved = await this.addServicoUseCase.execute(saved.id, s.servicoId, s.precoUnitario);
