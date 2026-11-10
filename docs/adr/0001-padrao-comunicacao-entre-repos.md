@@ -7,11 +7,11 @@
 
 ## Contexto
 
-Os 4 repositórios (`TECH-CHALLENGE-FASE-ONE`, `oficina-auth-lambda`,
+Os 4 repositórios (`oficina-os-service`, `oficina-auth-lambda`,
 `oficina-infra-k8s`, `oficina-infra-db`) são independentes (não é
 monorepo), mas dependem uns dos outros em runtime e em deploy:
 
-- `TECH-CHALLENGE-FASE-ONE` (app) precisa do cluster provisionado por
+- `oficina-os-service` (app) precisa do cluster provisionado por
   `oficina-infra-k8s` para aplicar seus próprios manifestos, e da
   `DATABASE_URL` gerada por `oficina-infra-db`. Fronteira confirmada via
   Q&A oficial da FIAP: o repo de infra-k8s só provisiona o cluster (EKS,
@@ -32,7 +32,7 @@ pipeline.
 1. **Artefato entre app e infra-k8s**: `oficina-infra-k8s` expõe, via output
    do Terraform, o que o pipeline da app precisa para falar com o cluster
    (endpoint do EKS, dados de autenticação/IAM role). O pipeline de
-   `TECH-CHALLENGE-FASE-ONE` publica sua própria imagem Docker em registry
+   `oficina-os-service` publica sua própria imagem Docker em registry
    (GHCR/ECR) com tag previsível (`sha`/`latest`) e **aplica seus próprios
    manifestos** (`Deployment`/`Service`/`HPA`/`ConfigMap`, que vivem nesse
    mesmo repo) contra esse cluster — nenhuma chamada direta de API entre os
@@ -74,7 +74,7 @@ pipeline.
   (tabela `clientes`) não é mitigado por essa ADR — é aceito e documentado
   separadamente na RFC de estratégia de autenticação; qualquer mudança de
   output do Terraform em `infra-db` exige coordenação manual com o
-  pipeline da app; o pipeline de `TECH-CHALLENGE-FASE-ONE` cresce em
+  pipeline da app; o pipeline de `oficina-os-service` cresce em
   responsabilidade (agora também aplica manifestos/Secrets no cluster, não
   só builda/publica imagem).
 - Trabalho decorrente: criar bucket S3 + tabela DynamoDB uma única vez,

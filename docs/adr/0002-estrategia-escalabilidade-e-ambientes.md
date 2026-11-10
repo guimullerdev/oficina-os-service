@@ -62,7 +62,7 @@ EKS, 1 instância RDS:
   (aceitável para projeto de curso, não seria para produção real
   multi-tenant).
 - Trabalho decorrente: os manifestos Kubernetes da app (no repo
-  `TECH-CHALLENGE-FASE-ONE`) precisam ser parametrizados por namespace (via
+  `oficina-os-service`) precisam ser parametrizados por namespace (via
   Kustomize/Helm, ou substituição no próprio pipeline);
   `oficina-infra-k8s` precisa criar os dois namespaces ao provisionar o
   cluster; cada pipeline precisa mapear branch → namespace/alias/stage

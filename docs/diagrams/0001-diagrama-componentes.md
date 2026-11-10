@@ -19,7 +19,7 @@ flowchart TB
             LambdaFn["Auth por CPF\n(valida CPF, consulta RDS, emite JWT)"]
         end
 
-        subgraph EKS["Kubernetes — cluster AWS EKS\ncluster + namespaces: oficina-infra-k8s\nworkloads abaixo: TECH-CHALLENGE-FASE-ONE"]
+        subgraph EKS["Kubernetes — cluster AWS EKS\ncluster + namespaces: oficina-infra-k8s\nworkloads abaixo: oficina-os-service"]
             direction TB
             Ns["namespaces: homolog | prod\n(mesmos manifestos, DATABASE_URL diferente)"]
             App["App NestJS — Deployment + Service\nAPIs: auth, clientes, veículos,\nordens de serviço, orçamento, estoque"]
