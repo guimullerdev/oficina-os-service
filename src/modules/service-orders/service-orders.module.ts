@@ -2,6 +2,7 @@ import { OsStatusMetrics } from './application/os-status-metrics.service';
 import { Module } from '@nestjs/common';
 
 import { PrismaModule } from 'src/prisma/prisma.module';
+import { PrismaService } from 'src/prisma/prisma.service';
 import { OutboxWriter } from '../../shared/messaging/outbox.writer';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
@@ -9,6 +10,8 @@ import { CustomersModule } from '../customers/customers.module';
 import { ORDEM_DE_SERVICO_REPOSITORY } from './domain/repositories/service-orders.repository.interface';
 import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/service-orders-prisma.repository';
 import { ServiceOrdersController } from './presentation/service-orders.controller';
+import { SagaOrchestrator } from './application/saga/saga-orchestrator.service';
+import { SagaPrismaRepository } from './application/saga/saga.repository';
 
 import { CreateOrdemDeServicoUseCase } from './application/use-cases/create-service-orders.usecase';
 import { GetOrdemDeServicoUseCase } from './application/use-cases/get-service-orders.usecase';
@@ -41,6 +44,13 @@ import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/proc
     providers: [
         OsStatusMetrics,
         OutboxWriter,
+        SagaPrismaRepository,
+        {
+            provide: SagaOrchestrator,
+            useFactory: (prisma: PrismaService, repo: SagaPrismaRepository, outbox: OutboxWriter) =>
+                new SagaOrchestrator(prisma, repo, outbox),
+            inject: [PrismaService, SagaPrismaRepository, OutboxWriter],
+        },
         CreateOrdemDeServicoUseCase,
         GetOrdemDeServicoUseCase,
         UpdateOrdemDeServicoUseCase,
@@ -69,6 +79,6 @@ import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/proc
             useClass: OrdemDeServicoPrismaRepository,
         },
     ],
-    exports: [ORDEM_DE_SERVICO_REPOSITORY],
+    exports: [ORDEM_DE_SERVICO_REPOSITORY, SagaOrchestrator],
 })
 export class ServiceOrdersModule {}

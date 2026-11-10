@@ -54,14 +54,16 @@ function makeUseCase(overrides: Partial<{
     clienteRepo: IClienteRepository;
     addServico: any;
     addPeca: any;
+    saga: any;
 }> = {}) {
     const repo = overrides.repo ?? mockOsRepo();
     const veiculoRepo = overrides.veiculoRepo ?? mockVeiculoRepo();
     const clienteRepo = overrides.clienteRepo ?? mockClienteRepo();
     const addServico = overrides.addServico ?? mockAddServico();
     const addPeca = overrides.addPeca ?? mockAddPeca();
-    return { repo, veiculoRepo, clienteRepo, addServico, addPeca,
-        useCase: new CreateOrdemDeServicoUseCase(repo as any, veiculoRepo as any, clienteRepo as any, addServico as any, addPeca as any) };
+    const saga = overrides.saga ?? { iniciar: jest.fn() };
+    return { repo, veiculoRepo, clienteRepo, addServico, addPeca, saga,
+        useCase: new CreateOrdemDeServicoUseCase(repo as any, veiculoRepo as any, clienteRepo as any, addServico as any, addPeca as any, saga as any) };
 }
 
 describe('CreateOrdemDeServicoUseCase', () => {
@@ -225,6 +227,22 @@ describe('CreateOrdemDeServicoUseCase', () => {
             const [, events] = (repo as any).create.mock.calls[0];
             expect(events[0].correlationId).toBe('corr-123');
             expect(events[0].traceparent).toBe(traceparent);
+        });
+
+        it('starts the saga inside the repository transaction hook with the os.criada correlationId', async () => {
+            const { repo, veiculoRepo, clienteRepo, saga, useCase } = makeUseCase();
+            (repo as any).generateNumero.mockResolvedValue('OS-010');
+            (repo as any).create.mockImplementation(async (o: OrdemDeServico) => o);
+            (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+            (veiculoRepo as any).findById.mockResolvedValue(makeVeiculo('v-1', 'c-1'));
+
+            const os = await useCase.execute({ clienteId: 'c-1', veiculoId: 'v-1' }, { correlationId: 'corr-777' });
+
+            const naTransacao = (repo as any).create.mock.calls[0][2];
+            expect(saga.iniciar).not.toHaveBeenCalled();
+            const tx = { marcador: 'tx' };
+            await naTransacao(tx);
+            expect(saga.iniciar).toHaveBeenCalledWith(os.id, 'corr-777', tx);
         });
     });
 

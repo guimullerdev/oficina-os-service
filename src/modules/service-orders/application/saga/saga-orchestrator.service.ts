@@ -1,0 +1,333 @@
+import { Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { DomainEvent } from '../../../../shared/messaging/domain-event';
+import { OutboxWriter } from '../../../../shared/messaging/outbox.writer';
+import {
+  DEFINICAO_POR_NOME,
+  EVENTOS_SAGA,
+  timeoutPadraoMs,
+} from './saga-definicao';
+import type { NomePassoSaga } from './saga-definicao';
+import {
+  aplicarEvento as decidirEvento,
+  iniciar as decidirInicio,
+} from './saga-maquina';
+import type {
+  ComandoSaga,
+  DecisaoSaga,
+  PassoAlterado,
+  SagaSnapshot,
+} from './saga-maquina';
+import {
+  PassoSagaCriacao,
+  SagaComPassos,
+  SagaPrismaRepository,
+} from './saga.repository';
+
+export const TIPO_SAGA_OS = 'ORDEM_DE_SERVICO';
+export const AGGREGATE_TYPE_OS = 'ordem_de_servico';
+
+/**
+ * `os.criada` e `diagnostico.concluido` (payload rico) continuam sendo
+ * emitidos pelos use cases; a saga só registra os passos correspondentes.
+ */
+export const EVENTOS_EMITIDOS_POR_USE_CASES: ReadonlySet<string> = new Set([
+  EVENTOS_SAGA.OS_CRIADA,
+  EVENTOS_SAGA.DIAGNOSTICO_CONCLUIDO,
+]);
+
+/** Passo que só começa quando o diagnóstico é concluído (não na criação). */
+export const PASSO_INICIADO_NO_DIAGNOSTICO: NomePassoSaga = 'GERAR_ORCAMENTO';
+
+const STATUS_TERMINAIS: ReadonlySet<string> = new Set([
+  'CONCLUIDA',
+  'COMPENSADA',
+  'FALHOU',
+]);
+
+export interface EnvelopeEventoSaga {
+  eventId: string;
+  correlationId?: string;
+  osId?: string;
+  payload?: unknown;
+  traceparent?: string;
+}
+
+export type ResultadoAplicacaoSaga =
+  | { encontrada: false; motivo: string }
+  | { encontrada: true; sagaId: string; osId: string; decisao: DecisaoSaga };
+
+export class SagaConcorrenciaError extends Error {
+  constructor(
+    readonly sagaId: string,
+    readonly ordem: number,
+  ) {
+    super(
+      `concorrência na saga ${sagaId}: passo ${ordem} mudou durante a aplicação`,
+    );
+    this.name = 'SagaConcorrenciaError';
+  }
+}
+
+function paraSnapshot(saga: SagaComPassos): SagaSnapshot {
+  return {
+    status: saga.status,
+    passos: saga.passos.map((p) => ({
+      ordem: p.ordem,
+      nome: p.nome as NomePassoSaga,
+      status: p.status,
+      tentativas: p.tentativas,
+      expiraEm: p.expiraEm,
+    })),
+  };
+}
+
+function adiarPassoDoDiagnostico(passo: PassoAlterado): PassoAlterado {
+  if (passo.nome !== PASSO_INICIADO_NO_DIAGNOSTICO) return passo;
+  return { ...passo, status: 'PENDENTE', tentativas: 0, expiraEm: null };
+}
+
+function paraCriacao(passo: PassoAlterado): PassoSagaCriacao {
+  const definicao = DEFINICAO_POR_NOME[passo.nome];
+  return {
+    ordem: passo.ordem,
+    nome: passo.nome,
+    status: passo.status,
+    tentativas: passo.tentativas,
+    expiraEm: passo.expiraEm,
+    comando: definicao.comando,
+    eventoEsperado: definicao.eventoEsperado,
+  };
+}
+
+function paraEventos(
+  saga: { id: string; osId: string; correlationId: string },
+  comandos: ComandoSaga[],
+  origem: { eventId: string | null; traceparent?: string },
+): DomainEvent[] {
+  return comandos
+    .filter((c) => !EVENTOS_EMITIDOS_POR_USE_CASES.has(c.evento))
+    .map((c) => ({
+      evento: c.evento,
+      aggregateType: AGGREGATE_TYPE_OS,
+      aggregateId: saga.osId,
+      payload: {
+        id: saga.osId,
+        sagaId: saga.id,
+        ordem: c.payload.ordem,
+        nome: c.payload.nome,
+        causadoPor: origem.eventId,
+      },
+      correlationId: saga.correlationId,
+      traceparent: origem.traceparent,
+    }));
+}
+
+// Dependências tipadas por contrato mínimo (type alias). A classe não usa
+// decorators de DI: o módulo a instancia via factory (ver service-orders.module).
+// Decorators de construtor geram ramos de helper/metadata (isolatedModules)
+// impossíveis de cobrir nos testes.
+type PrismaTransacional = Pick<PrismaService, '$transaction'>;
+type SagaRepositorio = Pick<
+  SagaPrismaRepository,
+  | 'criar'
+  | 'buscarPorOs'
+  | 'buscarPorCorrelationId'
+  | 'atualizarPassoSeStatus'
+  | 'atualizarStatusSaga'
+>;
+type OutboxSaga = Pick<OutboxWriter, 'append'>;
+
+export class SagaOrchestrator {
+  private readonly logger = new Logger(SagaOrchestrator.name);
+
+  constructor(
+    private readonly prisma: PrismaTransacional,
+    private readonly repo: SagaRepositorio,
+    private readonly outbox: OutboxSaga,
+  ) {}
+
+  /** Cria a saga dentro da transação do chamador (nunca abre a própria). */
+  async iniciar(
+    osId: string,
+    correlationId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<SagaComPassos> {
+    const decisao = decidirInicio(new Date(), process.env);
+    const passos = decisao.passos.map(adiarPassoDoDiagnostico);
+
+    const saga = await this.repo.criar(
+      {
+        osId,
+        tipo: TIPO_SAGA_OS,
+        correlationId,
+        status: decisao.status,
+        passos: passos.map(paraCriacao),
+      },
+      tx,
+    );
+    await this.outbox.append(
+      tx,
+      paraEventos(saga, decisao.comandos, { eventId: null }),
+    );
+    return saga;
+  }
+
+  /**
+   * Dispara o passo GERAR_ORCAMENTO (PENDENTE -> EM_ANDAMENTO, com timer) na
+   * transação do chamador. Retorna false quando não havia o que disparar.
+   */
+  async registrarDiagnosticoConcluido(
+    osId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const saga = await this.repo.buscarPorOs(osId, TIPO_SAGA_OS, tx);
+    if (!saga) {
+      this.logger.warn(`saga da OS ${osId} não encontrada`);
+      return false;
+    }
+    if (saga.status !== 'EM_ANDAMENTO') {
+      this.logger.warn(`saga ${saga.id} em status ${saga.status}`);
+      return false;
+    }
+    const passo = saga.passos.find(
+      (p) => p.nome === PASSO_INICIADO_NO_DIAGNOSTICO,
+    );
+    if (!passo || passo.status !== 'PENDENTE') {
+      this.logger.warn(
+        `saga ${saga.id}: passo ${PASSO_INICIADO_NO_DIAGNOSTICO} não está pendente`,
+      );
+      return false;
+    }
+
+    const count = await this.repo.atualizarPassoSeStatus(
+      passo.id,
+      'PENDENTE',
+      {
+        status: 'EM_ANDAMENTO',
+        expiraEm: new Date(
+          Date.now() +
+            timeoutPadraoMs(PASSO_INICIADO_NO_DIAGNOSTICO, process.env),
+        ),
+        incrementarTentativas: true,
+      },
+      tx,
+    );
+    if (count === 0) {
+      this.logger.warn(`saga ${saga.id}: passo mudou durante o diagnóstico`);
+      return false;
+    }
+    return true;
+  }
+
+  aplicarEvento(
+    evento: string,
+    envelope: EnvelopeEventoSaga,
+    tx?: Prisma.TransactionClient,
+  ): Promise<ResultadoAplicacaoSaga> {
+    const trabalho = (c: Prisma.TransactionClient) =>
+      this.aplicarNaTransacao(evento, envelope, c);
+    return tx ? trabalho(tx) : this.prisma.$transaction(trabalho);
+  }
+
+  private async carregar(
+    envelope: EnvelopeEventoSaga,
+    c: Prisma.TransactionClient,
+  ): Promise<SagaComPassos | null> {
+    if (envelope.osId) {
+      const porOs = await this.repo.buscarPorOs(envelope.osId, TIPO_SAGA_OS, c);
+      if (porOs) return porOs;
+    }
+    if (envelope.correlationId) {
+      return this.repo.buscarPorCorrelationId(envelope.correlationId, c);
+    }
+    return null;
+  }
+
+  private async aplicarNaTransacao(
+    evento: string,
+    envelope: EnvelopeEventoSaga,
+    c: Prisma.TransactionClient,
+  ): Promise<ResultadoAplicacaoSaga> {
+    const saga = await this.carregar(envelope, c);
+    if (!saga) {
+      const motivo = `saga não encontrada para ${evento} (osId=${envelope.osId}, correlationId=${envelope.correlationId})`;
+      this.logger.warn(motivo);
+      return { encontrada: false, motivo };
+    }
+
+    const agora = new Date();
+    const decisao = decidirEvento(
+      paraSnapshot(saga),
+      evento,
+      agora,
+      process.env,
+    );
+    const resultado = (d: DecisaoSaga): ResultadoAplicacaoSaga => ({
+      encontrada: true,
+      sagaId: saga.id,
+      osId: saga.osId,
+      decisao: d,
+    });
+
+    if (decisao.tipo === 'IGNORAR' || decisao.tipo === 'PROGRESSO') {
+      this.logger.log(
+        `saga ${saga.id}: ${evento} -> ${decisao.tipo} ${decisao.motivo ?? ''}`.trim(),
+      );
+      return resultado(decisao);
+    }
+
+    for (let i = 0; i < decisao.passosAlterados.length; i++) {
+      const alterado = decisao.passosAlterados[i];
+      const atual = saga.passos.find((p) => p.ordem === alterado.ordem);
+      if (!atual) {
+        throw new Error(
+          `passo ${alterado.ordem} inexistente na saga ${saga.id}`,
+        );
+      }
+
+      const count = await this.repo.atualizarPassoSeStatus(
+        atual.id,
+        atual.status,
+        {
+          status: alterado.status,
+          expiraEm: alterado.expiraEm,
+          erro: decisao.tipo === 'COMPENSAR' ? decisao.motivo : undefined,
+          incrementarTentativas: alterado.tentativas > atual.tentativas,
+        },
+        c,
+      );
+      if (count === 0 && i === 0) {
+        const motivo = `concorrência: passo ${alterado.ordem} da saga ${saga.id} já mudou`;
+        this.logger.warn(motivo);
+        return resultado({
+          tipo: 'IGNORAR',
+          passosAlterados: [],
+          comandos: [],
+          novoStatusSaga: saga.status,
+          motivo,
+        });
+      }
+      if (count === 0) throw new SagaConcorrenciaError(saga.id, alterado.ordem);
+    }
+
+    if (decisao.novoStatusSaga !== saga.status) {
+      await this.repo.atualizarStatusSaga(
+        saga.id,
+        decisao.novoStatusSaga,
+        STATUS_TERMINAIS.has(decisao.novoStatusSaga) ? agora : undefined,
+        c,
+      );
+    }
+    await this.outbox.append(
+      c,
+      paraEventos(saga, decisao.comandos, {
+        eventId: envelope.eventId,
+        traceparent: envelope.traceparent,
+      }),
+    );
+    return resultado(decisao);
+  }
+}

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, SagaInstancia, StatusPassoSaga, StatusSaga } from '@prisma/client';
 
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 
 const includePassos = {
     passos: { orderBy: { ordem: 'asc' } },
@@ -16,6 +16,7 @@ export interface PassoSagaCriacao {
     comando?: string | null;
     eventoEsperado?: string | null;
     expiraEm?: Date | null;
+    tentativas?: number;
 }
 
 export interface SagaCriacao {
