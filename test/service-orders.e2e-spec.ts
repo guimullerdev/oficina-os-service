@@ -1,9 +1,9 @@
 /**
- * E2E — Ciclo de vida completo da Ordem de Serviço
- *
- * Fluxo: criar cliente/veículo/serviço/peça → abrir OS → diagnóstico
- *        → orçamento → aprovar → executar → entregar
- */
+* E2E — Ciclo de vida completo da Ordem de Serviço
+*
+* Fluxo: criar cliente/veículo → abrir OS → itens (precoUnitario informado)
+*        → diagnóstico → aprovação via webhook → executar → entregar
+*/
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -12,19 +12,23 @@ import { AppModule } from 'src/app.module';
 import { HttpExceptionFilter } from 'src/common/filters/http-exception.filter';
 import { PrismaService } from 'src/prisma/prisma.service';
 
+const WEBHOOK_SECRET = 'e2e-webhook-secret';
+
 describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
     let app: INestApplication;
     let prisma: PrismaService;
     let token: string;
+    const originalWebhookSecret = process.env.WEBHOOK_SECRET;
 
     let clienteId: string;
     let veiculoId: string;
     let servicoId: string;
     let pecaId: string;
     let osId: string;
-    let orcamentoId: string;
 
     beforeAll(async () => {
+        process.env.WEBHOOK_SECRET = WEBHOOK_SECRET;
+
         const moduleFixture: TestingModule = await Test.createTestingModule({
             imports: [AppModule],
         }).compile();
@@ -37,29 +41,38 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         prisma = moduleFixture.get<PrismaService>(PrismaService);
 
         // Cleanup
-        await prisma.movimentacaoEstoque.deleteMany();
-        await prisma.orcamento.deleteMany();
         await prisma.osItemServico.deleteMany();
         await prisma.osItemPeca.deleteMany();
         await prisma.ordemDeServico.deleteMany();
         await prisma.veiculo.deleteMany();
         await prisma.cliente.deleteMany();
+        await prisma.user.deleteMany({ where: { email: 'e2e-os@test.com' } });
+
+        // remover após migration da Fase 2 (T4): os_itens_* ainda têm FK para servicos/pecas
         await prisma.servico.deleteMany();
         await prisma.peca.deleteMany();
-        await prisma.user.deleteMany({ where: { email: 'e2e-os@test.com' } });
+        const servico = await prisma.servico.create({ data: { nome: 'Alinhamento', precoBase: 120 } });
+        const peca = await prisma.peca.create({ data: { nome: 'Pastilha de freio', precoUnitario: 80 } });
+        servicoId = servico.id;
+        pecaId = peca.id;
 
         const authRes = await request(app.getHttpServer())
             .post('/auth/register')
-            .send({ email: 'e2e-os@test.com', password: 'senha123' });
+            .send({ email: 'e2e-os@test.com', password: 'senha123', role: 'ADMIN' });
         token = authRes.body.accessToken;
     });
 
     afterAll(async () => {
+        process.env.WEBHOOK_SECRET = originalWebhookSecret;
         await app.close();
     });
 
     function auth() {
         return { Authorization: `Bearer ${token}` };
+    }
+
+    function webhookAuth() {
+        return { Authorization: `Bearer ${WEBHOOK_SECRET}` };
     }
 
     // ── 1. Cadastros base ─────────────────────────────────────────────────────
@@ -68,7 +81,7 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         const res = await request(app.getHttpServer())
             .post('/clientes')
             .set(auth())
-            .send({ nome: 'Carlos E2E', cpf: '99988877766', email: 'carlos@e2e.com', telefone: '11900000000' })
+            .send({ nome: 'Carlos E2E', documento: '52998224725', email: 'carlos@e2e.com', telefone: '11900000000' })
             .expect(201);
 
         clienteId = res.body.id;
@@ -81,58 +94,16 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         const res = await request(app.getHttpServer())
             .post('/veiculos')
             .set(auth())
-            .send({ placa: 'E2E0001', marca: 'Fiat', modelo: 'Uno', ano: 2015, clienteId })
+            .send({ placa: 'EEE0001', marca: 'Fiat', modelo: 'Uno', ano: 2015, clienteId })
             .expect(201);
 
         veiculoId = res.body.id;
         expect(veiculoId).toBeDefined();
-        expect(res.body.placa).toBe('E2E0001');
     });
 
-    it('1c. POST /servicos → 201', async () => {
-        const res = await request(app.getHttpServer())
-            .post('/servicos')
-            .set(auth())
-            .send({ nome: 'Alinhamento', precoBase: 120 })
-            .expect(201);
+    // ── 2. Abrir OS ───────────────────────────────────────────────────────────
 
-        servicoId = res.body.id;
-        expect(servicoId).toBeDefined();
-    });
-
-    it('1d. POST /pecas com estoque → 201', async () => {
-        const res = await request(app.getHttpServer())
-            .post('/pecas')
-            .set(auth())
-            .send({ nome: 'Pastilha de freio', precoUnitario: 80, qtdTotal: 10 })
-            .expect(201);
-
-        pecaId = res.body.id;
-        expect(pecaId).toBeDefined();
-        expect(res.body.qtdTotal).toBe(10);
-        expect(res.body.qtdDisponivel).toBe(10);
-    });
-
-    // ── 2. Estoque — entrada manual ───────────────────────────────────────────
-
-    it('2. POST /estoque/entrada → registra entrada', async () => {
-        const res = await request(app.getHttpServer())
-            .post('/estoque/entrada')
-            .set(auth())
-            .send({ pecaId, quantidade: 5, observacao: 'Reposição inicial' })
-            .expect(201);
-
-        expect(res.body.tipo).toBe('ENTRADA');
-        expect(res.body.quantidade).toBe(5);
-
-        const peca = await prisma.peca.findUnique({ where: { id: pecaId } });
-        expect(peca!.qtdTotal).toBe(15);
-        expect(peca!.qtdDisponivel).toBe(15);
-    });
-
-    // ── 3. Abrir OS ───────────────────────────────────────────────────────────
-
-    it('3. POST /os → abre OS com status RECEBIDA', async () => {
+    it('2. POST /os → abre OS com status RECEBIDA', async () => {
         const res = await request(app.getHttpServer())
             .post('/os')
             .set(auth())
@@ -145,36 +116,48 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.numero).toBeDefined();
     });
 
-    // ── 4. Adicionar itens à OS ───────────────────────────────────────────────
+    // ── 3. Adicionar itens à OS ───────────────────────────────────────────────
 
-    it('4a. POST /os/:id/servicos → adiciona serviço', async () => {
+    it('3a. POST /os/:id/servicos → adiciona serviço com precoUnitario informado', async () => {
         const res = await request(app.getHttpServer())
             .post(`/os/${osId}/servicos`)
             .set(auth())
-            .send({ servicoId })
+            .send({ servicoId, precoUnitario: 150.5 })
             .expect(201);
 
         expect(res.body.servicos).toHaveLength(1);
-        expect(res.body.servicos[0].precoUnitario).toBe(120);
+        expect(res.body.servicos[0].precoUnitario).toBe(150.5);
     });
 
-    it('4b. POST /os/:id/pecas → adiciona peça e reserva estoque', async () => {
+    it('3b. POST /os/:id/pecas → adiciona peça com precoUnitario informado (sem mexer em estoque)', async () => {
         const res = await request(app.getHttpServer())
             .post(`/os/${osId}/pecas`)
             .set(auth())
-            .send({ pecaId, quantidade: 2 })
+            .send({ pecaId, quantidade: 2, precoUnitario: 99.9 })
             .expect(201);
 
         expect(res.body.pecas).toHaveLength(1);
         expect(res.body.pecas[0].quantidade).toBe(2);
-
-        // Estoque reservado
-        const peca = await prisma.peca.findUnique({ where: { id: pecaId } });
-        expect(peca!.qtdDisponivel).toBe(13); // 15 - 2
-        expect(peca!.qtdReservada).toBe(2);
+        expect(res.body.pecas[0].valorUnitario).toBe(99.9);
     });
 
-    it('4c. GET /os/:id → retorna OS com itens', async () => {
+    it('3c. POST /os/:id/servicos sem precoUnitario → 400', async () => {
+        await request(app.getHttpServer())
+            .post(`/os/${osId}/servicos`)
+            .set(auth())
+            .send({ servicoId })
+            .expect(400);
+    });
+
+    it('3d. POST /os/:id/pecas sem precoUnitario → 400', async () => {
+        await request(app.getHttpServer())
+            .post(`/os/${osId}/pecas`)
+            .set(auth())
+            .send({ pecaId, quantidade: 1 })
+            .expect(400);
+    });
+
+    it('3e. GET /os/:id → retorna OS com itens', async () => {
         const res = await request(app.getHttpServer())
             .get(`/os/${osId}`)
             .set(auth())
@@ -184,9 +167,9 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.pecas).toHaveLength(1);
     });
 
-    // ── 5. Diagnóstico ────────────────────────────────────────────────────────
+    // ── 4. Diagnóstico ────────────────────────────────────────────────────────
 
-    it('5a. PATCH /os/:id/iniciar-diagnostico → RECEBIDA → EM_DIAGNOSTICO', async () => {
+    it('4a. PATCH /os/:id/iniciar-diagnostico → RECEBIDA → EM_DIAGNOSTICO', async () => {
         const res = await request(app.getHttpServer())
             .patch(`/os/${osId}/iniciar-diagnostico`)
             .set(auth())
@@ -195,64 +178,59 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.status).toBe('EM_DIAGNOSTICO');
     });
 
-    it('5b. PATCH /os/:id/iniciar-diagnostico novamente → 422', async () => {
+    it('4b. PATCH /os/:id/iniciar-diagnostico novamente → 422', async () => {
         await request(app.getHttpServer())
             .patch(`/os/${osId}/iniciar-diagnostico`)
             .set(auth())
             .expect(422);
     });
 
-    it('5c. PATCH /os/:id/concluir-diagnostico → EM_DIAGNOSTICO → AGUARDANDO_APROVACAO + orçamento gerado', async () => {
+    it('4c. PATCH /os/:id/concluir-diagnostico → EM_DIAGNOSTICO → AGUARDANDO_APROVACAO', async () => {
         const res = await request(app.getHttpServer())
             .patch(`/os/${osId}/concluir-diagnostico`)
             .set(auth())
             .expect(200);
 
         expect(res.body.status).toBe('AGUARDANDO_APROVACAO');
-
-        // Orçamento deve ter sido criado automaticamente
-        const orc = await prisma.orcamento.findFirst({ where: { osId } });
-        expect(orc).not.toBeNull();
-        orcamentoId = orc!.id;
-        expect(Number(orc!.valorTotal)).toBe(280); // 120 + 80*2
     });
 
-    // ── 6. Orçamento ──────────────────────────────────────────────────────────
+    // ── 5. Aprovação via webhook ──────────────────────────────────────────────
 
-    it('6a. GET /orcamentos/:id → retorna orçamento', async () => {
+    it('5a. POST /os/webhook/notificacao sem token → 401', async () => {
+        await request(app.getHttpServer())
+            .post('/os/webhook/notificacao')
+            .send({ osId, acao: 'APROVAR' })
+            .expect(401);
+    });
+
+    it('5b. POST /os/webhook/notificacao APROVAR → OS APROVADA', async () => {
         const res = await request(app.getHttpServer())
-            .get(`/orcamentos/${orcamentoId}`)
-            .set(auth())
+            .post('/os/webhook/notificacao')
+            .set(webhookAuth())
+            .send({ osId, acao: 'APROVAR', observacoes: 'Cliente aprovou' })
             .expect(200);
 
-        expect(res.body.status).toBe('GERADO');
-        expect(res.body.valorTotal).toBe(280);
-    });
-
-    it('6b. POST /orcamentos/:id/enviar → GERADO → ENVIADO', async () => {
-        const res = await request(app.getHttpServer())
-            .post(`/orcamentos/${orcamentoId}/enviar`)
-            .set(auth())
-            .expect(201);
-
-        expect(res.body.status).toBe('ENVIADO');
-    });
-
-    it('6c. PATCH /orcamentos/:id/aprovar → ENVIADO → APROVADO; OS → APROVADA', async () => {
-        const res = await request(app.getHttpServer())
-            .patch(`/orcamentos/${orcamentoId}/aprovar`)
-            .set(auth())
-            .expect(200);
-
-        expect(res.body.status).toBe('APROVADO');
+        expect(res.body.resultado).toBe('APLICADA');
+        expect(res.body.statusAtual).toBe('APROVADA');
 
         const os = await prisma.ordemDeServico.findUnique({ where: { id: osId } });
         expect(os!.status).toBe('APROVADA');
     });
 
-    // ── 7. Execução ───────────────────────────────────────────────────────────
+    it('5c. POST /os/webhook/notificacao APROVAR repetido → idempotente', async () => {
+        const res = await request(app.getHttpServer())
+            .post('/os/webhook/notificacao')
+            .set(webhookAuth())
+            .send({ osId, acao: 'APROVAR' })
+            .expect(200);
 
-    it('7a. PATCH /os/:id/iniciar-execucao → APROVADA → EM_EXECUCAO', async () => {
+        expect(res.body.resultado).toBe('IGNORADA_IDEMPOTENTE');
+        expect(res.body.statusAtual).toBe('APROVADA');
+    });
+
+    // ── 6. Execução ───────────────────────────────────────────────────────────
+
+    it('6a. PATCH /os/:id/iniciar-execucao → APROVADA → EM_EXECUCAO', async () => {
         const res = await request(app.getHttpServer())
             .patch(`/os/${osId}/iniciar-execucao`)
             .set(auth())
@@ -261,7 +239,7 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.status).toBe('EM_EXECUCAO');
     });
 
-    it('7b. PATCH /os/:id/pecas/:itemId/utilizar → marca peça como utilizada e baixa estoque', async () => {
+    it('6b. PATCH /os/:id/pecas/:itemId/utilizar → marca peça como utilizada', async () => {
         const os = await prisma.ordemDeServico.findUnique({
             where: { id: osId },
             include: { osItensPeca: true },
@@ -273,12 +251,11 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
             .set(auth())
             .expect(200);
 
-        const peca = await prisma.peca.findUnique({ where: { id: pecaId } });
-        expect(peca!.qtdReservada).toBe(0);
-        expect(peca!.qtdTotal).toBe(13); // 15 - 2
+        const item = await prisma.osItemPeca.findUnique({ where: { id: itemId } });
+        expect(item!.utilizada).toBe(true);
     });
 
-    it('7c. PATCH /os/:id/finalizar-execucao → EM_EXECUCAO → FINALIZADA', async () => {
+    it('6c. PATCH /os/:id/finalizar-execucao → EM_EXECUCAO → FINALIZADA', async () => {
         const res = await request(app.getHttpServer())
             .patch(`/os/${osId}/finalizar-execucao`)
             .set(auth())
@@ -288,7 +265,7 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.dataFechamento).toBeDefined();
     });
 
-    it('7d. PATCH /os/:id/entregar → FINALIZADA → ENTREGUE', async () => {
+    it('6d. PATCH /os/:id/entregar → FINALIZADA → ENTREGUE', async () => {
         const res = await request(app.getHttpServer())
             .patch(`/os/${osId}/entregar`)
             .set(auth())
@@ -297,59 +274,52 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         expect(res.body.status).toBe('ENTREGUE');
     });
 
-    // ── 8. Filtros e 404 ──────────────────────────────────────────────────────
+    // ── 7. Filtros e 404 ──────────────────────────────────────────────────────
 
-    it('8a. GET /os?status=ENTREGUE → retorna a OS', async () => {
+    it('7a. GET /os?status=ENTREGUE → retorna a OS', async () => {
         const res = await request(app.getHttpServer())
-            .get('/os?status=ENTREGUE')
+            .get('/os?status=ENTREGUE&incluirArquivadas=true')
             .set(auth())
             .expect(200);
 
         expect(res.body.some((o: any) => o.id === osId)).toBe(true);
     });
 
-    it('8b. GET /os/:id com ID inexistente → 404', async () => {
+    it('7b. GET /os/:id com ID inexistente → 404', async () => {
         await request(app.getHttpServer())
             .get('/os/00000000-0000-0000-0000-000000000000')
             .set(auth())
             .expect(404);
     });
 
-    // ── 9. Fluxo de reprovação ────────────────────────────────────────────────
+    // ── 8. Fluxo de reprovação via webhook ────────────────────────────────────
 
-    it('9. reprovar orçamento → OS → REPROVADA, estoque liberado', async () => {
-        // Nova OS
+    it('8. webhook REPROVAR → OS → REPROVADA', async () => {
         const osRes = await request(app.getHttpServer())
             .post('/os')
             .set(auth())
-            .send({ clienteId, veiculoId })
+            .send({
+                clienteId,
+                veiculoId,
+                servicos: [{ servicoId, precoUnitario: 100 }],
+                pecas: [{ pecaId, quantidade: 1, precoUnitario: 50 }],
+            })
             .expect(201);
         const novaOsId = osRes.body.id;
-
-        await request(app.getHttpServer()).post(`/os/${novaOsId}/servicos`).set(auth()).send({ servicoId }).expect(201);
-        await request(app.getHttpServer()).post(`/os/${novaOsId}/pecas`).set(auth()).send({ pecaId, quantidade: 1 }).expect(201);
-
-        const pecaAntes = await prisma.peca.findUnique({ where: { id: pecaId } });
-        const disponivelAntes = pecaAntes!.qtdDisponivel;
 
         await request(app.getHttpServer()).patch(`/os/${novaOsId}/iniciar-diagnostico`).set(auth()).expect(200);
         await request(app.getHttpServer()).patch(`/os/${novaOsId}/concluir-diagnostico`).set(auth()).expect(200);
 
-        const orc = await prisma.orcamento.findFirst({ where: { osId: novaOsId } });
         const res = await request(app.getHttpServer())
-            .patch(`/orcamentos/${orc!.id}/reprovar`)
-            .set(auth())
-            .send({ observacoes: 'Muito caro' })
+            .post('/os/webhook/notificacao')
+            .set(webhookAuth())
+            .send({ osId: novaOsId, acao: 'REPROVAR', observacoes: 'Muito caro' })
             .expect(200);
 
-        expect(res.body.status).toBe('REPROVADO');
+        expect(res.body.resultado).toBe('APLICADA');
+        expect(res.body.statusAtual).toBe('REPROVADA');
 
         const os = await prisma.ordemDeServico.findUnique({ where: { id: novaOsId } });
         expect(os!.status).toBe('REPROVADA');
-
-        // Reserva deve ter sido liberada
-        const pecaDepois = await prisma.peca.findUnique({ where: { id: pecaId } });
-        expect(pecaDepois!.qtdDisponivel).toBe(disponivelAntes + 1);
-        expect(pecaDepois!.qtdReservada).toBe(0);
     });
 });
