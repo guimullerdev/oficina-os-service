@@ -43,6 +43,27 @@ jobs:
       # package.json); a pipeline falha se regredir.
       - run: yarn test:cov
 
+  # --- Terraform: formatação, init sem backend e validação ------------------
+  # Só checagens estáticas: sem backend S3, sem credenciais AWS, sem secrets.
+  terraform-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+          terraform_wrapper: false
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate -no-color
+
   # --- Build da imagem Docker + publicação no GHCR --------------------------
   docker-build-push:
     needs: build-and-test
