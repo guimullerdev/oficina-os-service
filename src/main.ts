@@ -24,7 +24,7 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .addBearerAuth()
-    .setTitle('Oficina API')
+    .setTitle('Oficina OS Service')
     .setDescription(
       'API para gestão de ordens de serviço de uma oficina mecânica. ' +
       'Inclui CRUD de clientes, veículos, serviços e peças, além do ciclo de vida completo da OS ' +
