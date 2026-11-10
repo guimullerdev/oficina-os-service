@@ -157,3 +157,24 @@ model User {
   role             UserRole @default(ATENDENTE)
   createdAt        DateTime @default(now())
 }
+
+// ---------------------------------------------------------------------------
+// Outbox
+// ---------------------------------------------------------------------------
+
+model Outbox {
+  id            String    @id @default(uuid())
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String    @map("aggregate_id")
+  evento        String
+  payload       Json
+  correlationId String    @map("correlation_id")
+  traceparent   String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  publishedAt   DateTime? @map("published_at")
+  tentativas    Int       @default(0)
+  ultimoErro    String?   @map("ultimo_erro") @db.Text
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox")
+}
