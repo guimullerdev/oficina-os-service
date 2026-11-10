@@ -13,7 +13,7 @@ Este é um dos **4 repositórios** da Fase 3:
 
 | Repositório | Papel |
 |---|---|
-| **`TECH-CHALLENGE-FASE-ONE`** (aqui) | aplicação, manifestos Kubernetes e pipeline de deploy |
+| **`oficina-os-service`** (aqui; antigo `TECH-CHALLENGE-FASE-ONE`) | aplicação, manifestos Kubernetes e pipeline de deploy |
 | [`oficina-auth-lambda`](https://github.com/guimullerdev/oficina-auth-lambda) | função serverless de autenticação por CPF |
 | [`oficina-infra-k8s`](https://github.com/guimullerdev/oficina-infra-k8s) | cluster EKS, API Gateway e observabilidade |
 | [`oficina-infra-db`](https://github.com/guimullerdev/oficina-infra-db) | banco de dados gerenciado (RDS) |
@@ -120,7 +120,7 @@ Cluster Kubernetes (kind)
 └── namespace: oficina
     ├── ConfigMap + Secret       # NODE_ENV, JWT, DATABASE_URL, WEBHOOK_SECRET
     ├── Postgres                 # Deployment + Service + PVC
-    └── oficina-api              # Deployment (2 pods) + Service + HPA (2→5, CPU 70%)
+    └── oficina-os-service              # Deployment (2 pods) + Service + HPA (2→5, CPU 70%)
 ```
 
 - Atores externos acessam a API pelo `Service`; o cliente pode consultar o
@@ -228,7 +228,7 @@ ambientes, e o `kubectl apply -n` do pipeline decide qual. `${APP_IMAGE}` e
 ### Rodando os manifestos à mão
 
 ```bash
-export APP_IMAGE=ghcr.io/guimullerdev/tech-challenge-fase-one:<sha>
+export APP_IMAGE=ghcr.io/guimullerdev/oficina-os-service:<sha>
 export NAMESPACE=homolog
 export MIGRATION_JOB_NAME=oficina-migrate-manual
 
@@ -240,7 +240,7 @@ kubectl apply -n "$NAMESPACE" -f k8s/hpa.yaml
 ```
 
 O `Secret` precisa existir antes — crie com `kubectl create secret generic
-oficina-api-secret` (ver o formato em `k8s/secret.example.yaml`).
+oficina-os-service-secret` (ver o formato em `k8s/secret.example.yaml`).
 
 ---
 

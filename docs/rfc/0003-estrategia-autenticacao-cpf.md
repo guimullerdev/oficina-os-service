@@ -4,7 +4,7 @@
 - **Autor(es)**: Guilherme Müller
 - **Data**: 2026-09-10
 - **Repos afetados**: `oficina-auth-lambda`, `oficina-infra-db`,
-  `TECH-CHALLENGE-FASE-ONE` (app)
+  `oficina-os-service` (app)
 
 ## Contexto
 
@@ -68,7 +68,7 @@ coexistem, não são exclusivos — `User` (staff:
   mais simples de implementar e testar.
 - Negativas / trade-offs aceitos: mudança de schema na tabela `clientes`
   (renomear/remover `documento` ou `ativo`) exige coordenação manual entre
-  os repos `TECH-CHALLENGE-FASE-ONE` e `oficina-auth-lambda`, já que não há
+  os repos `oficina-os-service` e `oficina-auth-lambda`, já que não há
   contrato de API formal entre eles para essa consulta.
 - Rede: a Lambda precisa estar provisionada na mesma VPC do RDS (definida em
   `oficina-infra-db`), com a Security Group do RDS liberando entrada da SG
@@ -82,5 +82,5 @@ coexistem, não são exclusivos — `User` (staff:
 
 - `13SOAT - Fase 3 - Tech Challenge.pdf`
 - Diagrama de sequência: `docs/diagrams/0002-sequencia-autenticacao-cpf.md`
-- `TECH-CHALLENGE-FASE-ONE/src/modules/customers/domain/entities/customers.entity.ts`
-- `TECH-CHALLENGE-FASE-ONE/src/modules/auth/domain/enums/user-role.enum.ts`
+- `oficina-os-service/src/modules/customers/domain/entities/customers.entity.ts`
+- `oficina-os-service/src/modules/auth/domain/enums/user-role.enum.ts`

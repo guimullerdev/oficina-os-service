@@ -4,14 +4,14 @@
 - **Autor(es)**: Guilherme Müller
 - **Data**: 2026-09-14
 - **Repos afetados**: `oficina-infra-k8s` (dono do recurso),
-  `oficina-auth-lambda`, `TECH-CHALLENGE-FASE-ONE`
+  `oficina-auth-lambda`, `oficina-os-service`
 
 ## Contexto
 
 O PDF exige um API Gateway para controle e roteamento. Ele é o único
 componente que precisa conhecer **os dois** destinos ao mesmo tempo: a
 Lambda de autenticação por CPF (`oficina-auth-lambda`) e o Service da
-aplicação rodando no EKS (`TECH-CHALLENGE-FASE-ONE`, sobre o cluster de
+aplicação rodando no EKS (`oficina-os-service`, sobre o cluster de
 `oficina-infra-k8s`).
 
 Isso levanta três perguntas que precisavam de resposta explícita: em qual

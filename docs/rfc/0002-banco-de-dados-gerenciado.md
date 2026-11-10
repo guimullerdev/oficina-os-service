@@ -3,7 +3,7 @@
 - **Status**: Aceita
 - **Autor(es)**: Guilherme Müller
 - **Data**: 2026-09-10
-- **Repos afetados**: `oficina-infra-db`, `TECH-CHALLENGE-FASE-ONE` (app)
+- **Repos afetados**: `oficina-infra-db`, `oficina-os-service` (app)
 
 ## Contexto
 

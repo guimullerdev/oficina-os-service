@@ -53,7 +53,7 @@ complexidade operacional de uma stack auto-hospedada.
 
 ## Consequências
 
-- App (`TECH-CHALLENGE-FASE-ONE`) instala o agente `newrelic` (pacote npm),
+- App (`oficina-os-service`) instala o agente `newrelic` (pacote npm),
   carregado antes de tudo em `main.ts`, para instrumentação de latência de
   API.
 - `oficina-auth-lambda` também precisa de instrumentação equivalente
@@ -72,4 +72,4 @@ complexidade operacional de uma stack auto-hospedada.
 - `13SOAT - Fase 3 - Tech Challenge.pdf`
 - ADR 0004 — organização dos logs e traces
 - `docs/observabilidade/` — dashboard versionado
-- `TECH-CHALLENGE-FASE-ONE/docs/plano-fase3.md`
+- `oficina-os-service/docs/plano-fase3.md`

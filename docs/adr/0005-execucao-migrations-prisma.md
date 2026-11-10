@@ -4,7 +4,7 @@
 - **Autor(es)**: Guilherme Müller
 - **Data**: 2026-09-13 (revisada no mesmo dia após Q&A oficial da FIAP sobre
   a fronteira entre repo de infra-k8s e repo da app — ver ADR 0001)
-- **Repos afetados**: `TECH-CHALLENGE-FASE-ONE` (app), `oficina-infra-db`,
+- **Repos afetados**: `oficina-os-service` (app), `oficina-infra-db`,
   `oficina-infra-k8s`
 
 ## Contexto
