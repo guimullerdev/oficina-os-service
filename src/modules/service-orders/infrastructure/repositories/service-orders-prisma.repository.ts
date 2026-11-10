@@ -5,6 +5,8 @@ import { IOrdemDeServicoRepository } from '../../domain/repositories/service-ord
 import { OrdemDeServico, StatusOS, OsItemServico, OsItemPeca } from '../../domain/entities/service-orders.entity';
 import { ServiceOrderMapper } from '../mappers/service-orders.mapper';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { DomainEvent } from '../../../../shared/messaging/domain-event';
+import { OutboxWriter } from '../../../../shared/messaging/outbox.writer';
 
 const STATUS_PRIORITY: Partial<Record<StatusOS, number>> = {
     [StatusOS.EM_EXECUCAO]: 1,
@@ -28,7 +30,10 @@ const includeItems = {
 
 @Injectable()
 export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private outboxWriter: OutboxWriter,
+    ) {}
 
     async findById(id: string): Promise<OrdemDeServico | null> {
         const raw = await this.prisma.ordemDeServico.findUnique({ where: { id }, include: includeItems });
@@ -50,26 +55,31 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
         return raws.map(ServiceOrderMapper.toDomain).sort(byStatusPriorityThenOldest);
     }
 
-    async create(os: OrdemDeServico): Promise<OrdemDeServico> {
-        const raw = await this.prisma.ordemDeServico.create({
-            data: {
-                ...ServiceOrderMapper.toPrisma(os),
-                // A OS nasce com o registro do status inicial (RECEBIDA), que
-                // é o marco a partir do qual a primeira transição é medida.
-                historicoStatus: {
-                    createMany: {
-                        data: ServiceOrderMapper.historicoToPrisma(os).map(
-                            ({ osId: _osId, ...linha }) => linha,
-                        ),
+    async create(os: OrdemDeServico, events: DomainEvent[] = []): Promise<OrdemDeServico> {
+        const raw = await this.prisma.$transaction(async (tx) => {
+            const created = await tx.ordemDeServico.create({
+                data: {
+                    ...ServiceOrderMapper.toPrisma(os),
+                    // A OS nasce com o registro do status inicial (RECEBIDA), que
+                    // é o marco a partir do qual a primeira transição é medida.
+                    historicoStatus: {
+                        createMany: {
+                            data: ServiceOrderMapper.historicoToPrisma(os).map(
+                                ({ osId: _osId, ...linha }) => linha,
+                            ),
+                        },
                     },
                 },
-            },
-            include: includeItems,
+                include: includeItems,
+            });
+
+            await this.outboxWriter.append(tx, events);
+            return created;
         });
         return ServiceOrderMapper.toDomain(raw);
     }
 
-    async update(os: OrdemDeServico): Promise<OrdemDeServico> {
+    async update(os: OrdemDeServico, events: DomainEvent[] = []): Promise<OrdemDeServico> {
         await this.prisma.$transaction(async (tx) => {
             await tx.ordemDeServico.update({
                 where: { id: os.id },
@@ -122,6 +132,8 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
                     })),
                 });
             }
+
+            await this.outboxWriter.append(tx, events);
         });
 
         const updated = await this.prisma.ordemDeServico.findUniqueOrThrow({
