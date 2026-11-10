@@ -149,6 +149,7 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
           SNS_TOPIC_ARN: ${{ secrets.SNS_TOPIC_ARN }}
+          SQS_QUEUE_URL: ${{ secrets.SQS_QUEUE_URL }}
         run: |
           kubectl create secret generic oficina-os-service-secret \
             --namespace "$NAMESPACE" \
@@ -157,6 +158,7 @@ jobs:
             --from-literal=WEBHOOK_SECRET="$WEBHOOK_SECRET" \
             --from-literal=NEW_RELIC_LICENSE_KEY="$NEW_RELIC_LICENSE_KEY" \
             --from-literal=SNS_TOPIC_ARN="$SNS_TOPIC_ARN" \
+            --from-literal=SQS_QUEUE_URL="$SQS_QUEUE_URL" \
             --from-literal=NEW_RELIC_ENABLED="true" \
             --dry-run=client -o yaml | kubectl apply -f -
 
