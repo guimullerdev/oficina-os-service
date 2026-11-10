@@ -26,15 +26,17 @@ export class JwtAuthGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { user?: object }>();
     const token = this.extractToken(request);
     if (!token) throw new UnauthorizedException('Token não fornecido');
 
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
+      const payload = await this.jwtService.verifyAsync<object>(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
-      (request as any)['user'] = payload;
+      request.user = payload;
     } catch {
       throw new UnauthorizedException('Token inválido ou expirado');
     }

@@ -25,7 +25,7 @@ export class CreateVeiculoDto {
     description: 'Placa no formato antigo (ABC1234) ou Mercosul (ABC1D23)',
   })
   @IsNotEmpty()
-  @Transform(({ value }) =>
+  @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string'
       ? value.toUpperCase().replace(/[-\s]/g, '')
       : value,

@@ -36,7 +36,7 @@ export class VeiculoPrismaRepository implements IVeiculoRepository {
       },
       orderBy: { placa: 'asc' },
     });
-    return raws.map(VeiculoMapper.toDomain);
+    return raws.map((raw) => VeiculoMapper.toDomain(raw));
   }
 
   async create(veiculo: Veiculo): Promise<Veiculo> {

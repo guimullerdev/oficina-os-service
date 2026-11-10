@@ -1,3 +1,4 @@
+import { Request } from 'express';
 import {
   CanActivate,
   ExecutionContext,
@@ -9,9 +10,7 @@ import {
 export class WebhookAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
-    const authHeader = (request.headers as any)['authorization'] as
-      | string
-      | undefined;
+    const authHeader = request.headers.authorization;
 
     if (!authHeader?.startsWith('Bearer ')) {
       throw new UnauthorizedException(

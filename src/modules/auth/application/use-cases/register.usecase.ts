@@ -2,7 +2,7 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { RegisterDto } from '../dto/register.dto';
 import { AuthResponseDto } from '../dto/auth-response.dto';
 import { User } from '../../domain/entities/user.entity';
@@ -51,16 +51,14 @@ export class RegisterUseCase {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('JWT_SECRET'),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         expiresIn: (this.configService.get<string>('JWT_EXPIRES_IN') ??
-          '1h') as any,
+          '1h') as JwtSignOptions['expiresIn'],
       }),
       this.jwtService.signAsync(payload, {
         secret:
           this.configService.get<string>('JWT_REFRESH_SECRET') ??
           this.configService.get<string>('JWT_SECRET') + '_refresh',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        expiresIn: '7d' as any,
+        expiresIn: '7d',
       }),
     ]);
     return { accessToken, refreshToken };

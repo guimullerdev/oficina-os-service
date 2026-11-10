@@ -1,7 +1,6 @@
 import { Prisma, StatusOS } from '@prisma/client';
 import {
   OrdemDeServico,
-  OrdemDeServicoProps,
   OsItemServico,
   OsItemPeca,
 } from '../../domain/entities/service-orders.entity';

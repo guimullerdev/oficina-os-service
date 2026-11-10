@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, StatusOS as PrismaStatusOS } from '@prisma/client';
 
 import {
   IOrdemDeServicoRepository,
@@ -66,7 +66,9 @@ export class OrdemDeServicoPrismaRepository
   }): Promise<OrdemDeServico[]> {
     const raws = await this.prisma.ordemDeServico.findMany({
       where: {
-        ...(filters?.status ? { status: filters.status as any } : {}),
+        ...(filters?.status
+          ? { status: filters.status as unknown as PrismaStatusOS }
+          : {}),
         ...(filters?.clienteId ? { clienteId: filters.clienteId } : {}),
         ...(filters?.veiculoId ? { veiculoId: filters.veiculoId } : {}),
         ...(filters?.incluirArquivadas ? {} : { arquivada: false }),
@@ -75,7 +77,7 @@ export class OrdemDeServicoPrismaRepository
       orderBy: { dataAbertura: 'asc' },
     });
     return raws
-      .map(ServiceOrderMapper.toDomain)
+      .map((raw) => ServiceOrderMapper.toDomain(raw))
       .sort(byStatusPriorityThenOldest);
   }
 
@@ -92,9 +94,12 @@ export class OrdemDeServicoPrismaRepository
           // é o marco a partir do qual a primeira transição é medida.
           historicoStatus: {
             createMany: {
-              data: ServiceOrderMapper.historicoToPrisma(os).map(
-                ({ osId: _osId, ...linha }) => linha,
-              ),
+              data: ServiceOrderMapper.historicoToPrisma(os).map((linha) => ({
+                id: linha.id,
+                statusAnterior: linha.statusAnterior,
+                statusNovo: linha.statusNovo,
+                data: linha.data,
+              })),
             },
           },
         },
@@ -117,7 +122,7 @@ export class OrdemDeServicoPrismaRepository
       await tx.ordemDeServico.update({
         where: { id: os.id },
         data: {
-          status: os.status as any,
+          status: os.status as unknown as PrismaStatusOS,
           arquivada: os.arquivada,
           descricaoProblema: os.descricaoProblema ?? null,
           dataFechamento: os.dataFechamento ?? null,
@@ -192,8 +197,11 @@ export class OrdemDeServicoPrismaRepository
     const client = tx as Prisma.TransactionClient;
     // Guarda otimista pelo status atual: se outro fluxo já moveu a OS, não grava nada.
     const { count } = await client.ordemDeServico.updateMany({
-      where: { id: os.id, status: statusEsperado as any },
-      data: { status: os.status as any, updatedAt: os.updatedAt },
+      where: { id: os.id, status: statusEsperado as unknown as PrismaStatusOS },
+      data: {
+        status: os.status as unknown as PrismaStatusOS,
+        updatedAt: os.updatedAt,
+      },
     });
     if (count === 0) return false;
 

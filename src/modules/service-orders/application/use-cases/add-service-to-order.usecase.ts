@@ -35,8 +35,10 @@ export class AddServicoToOsUseCase {
         precoUnitario,
         status: 'pendente',
       });
-    } catch (err: any) {
-      throw new ConflictException(err.message);
+    } catch (err) {
+      throw new ConflictException(
+        err instanceof Error ? err.message : String(err),
+      );
     }
 
     return this.osRepo.update(updated);
