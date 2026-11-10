@@ -11,10 +11,6 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { CustomersModule } from './modules/customers/customers.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
-import { ServicesModule } from './modules/services/presentation/services.module';
-import { PartsModule } from './modules/parts/parts.module';
-import { EstoqueModule } from './modules/estoque/estoque.module';
-import { OrcamentosModule } from './modules/orcamentos/orcamentos.module';
 import { ServiceOrdersModule } from './modules/service-orders/service-orders.module';
 
 @Module({
@@ -27,10 +23,6 @@ import { ServiceOrdersModule } from './modules/service-orders/service-orders.mod
     AuthModule,
     CustomersModule,
     VehiclesModule,
-    ServicesModule,
-    PartsModule,
-    EstoqueModule,
-    OrcamentosModule,
     ServiceOrdersModule,
   ],
   controllers: [HealthController],

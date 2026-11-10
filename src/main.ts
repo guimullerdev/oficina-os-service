@@ -27,18 +27,14 @@ async function bootstrap() {
     .setTitle('Oficina OS Service')
     .setDescription(
       'API para gestão de ordens de serviço de uma oficina mecânica. ' +
-      'Inclui CRUD de clientes, veículos, serviços e peças, além do ciclo de vida completo da OS ' +
-      '(abertura → diagnóstico → orçamento → aprovação → execução → entrega).',
+      'Inclui CRUD de clientes e veículos, além do ciclo de vida da OS ' +
+      '(abertura → diagnóstico → aprovação → execução → entrega).',
     )
     .setVersion('1.0')
     .addTag('auth', 'Autenticação e emissão de tokens')
     .addTag('clientes', 'Gestão de clientes')
     .addTag('veiculos', 'Gestão de veículos')
-    .addTag('servicos', 'Catálogo de serviços')
-    .addTag('pecas', 'Gestão de peças')
     .addTag('os', 'Ordens de serviço')
-    .addTag('estoque', 'Controle de estoque')
-    .addTag('orcamentos', 'Orçamentos')
     .addTag('health', 'Health check')
     .build();
 
