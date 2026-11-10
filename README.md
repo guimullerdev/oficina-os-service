@@ -22,13 +22,15 @@ Este é um dos **4 repositórios** da Fase 3:
 
 ## Deploy ativo
 
-A aplicação é alcançada **pelo API Gateway**, não diretamente: o `Service` no
-cluster é um NLB interno, sem exposição à internet (ver ADR 0006).
+A aplicação é alcançada **pelo API Gateway**, não diretamente. No cluster, o
+`Service` é do tipo `ClusterIP` e o tráfego entra pelo `Ingress` nginx
+([`k8s/ingress.yaml`](k8s/ingress.yaml)), atrás do NLB único que o
+`oficina-infra-k8s` provisiona e que o API Gateway acessa via VPC Link (ver
+ADR 0006). Há um único ambiente, `prod` (ver ADR 0009).
 
 | Ambiente | Endpoint |
 |---|---|
-| Produção | https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod |
-| Homologação | https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/homolog |
+| Produção (`prod`) | https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod |
 
 - **Swagger**: https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod/api
 - **Healthcheck**: https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod/health
@@ -59,8 +61,8 @@ curl -s "$BASE/os/me" -H "authorization: Bearer $TOKEN"
   distintos convivendo (ver RFC 0003).
 - **Infraestrutura gerenciada na AWS**: EKS para o cluster, RDS para o banco,
   Lambda para a autenticação e API Gateway como porta de entrada única.
-- **Deploy automatizado por branch**: `main` → namespace `prod`,
-  `develop` → namespace `homolog`, cada um com seu próprio banco.
+- **Deploy automatizado em ambiente único**: a `main` publica a imagem e faz o
+  deploy no namespace `prod`; a `develop` só builda e testa (ADR 0009).
 - **Observabilidade**: logs estruturados em JSON com correlation-id,
   distributed tracing, dashboards, alertas e monitoramento externo de uptime.
 - **Documentação arquitetural**: RFCs, ADRs e diagramas em [`docs/`](docs/).
@@ -118,20 +120,21 @@ src/
 
 ### Infraestrutura provisionada
 
-Tudo roda dentro de um **cluster Kubernetes local (kind)**, provisionado por
-Terraform, no namespace `oficina`:
+O cluster EKS é provisionado pelo `oficina-infra-k8s`, e o banco é um RDS
+PostgreSQL (`oficina-infra-db`), fora do cluster. A aplicação roda no namespace
+`prod`:
 
 ```
-Cluster Kubernetes (kind)
+Cluster EKS (oficina-infra-k8s)
 ├── kube-system
 │   └── metrics-server          # métricas de CPU para o HPA
-└── namespace: oficina
+└── namespace: prod
     ├── ConfigMap + Secret       # NODE_ENV, JWT, DATABASE_URL, WEBHOOK_SECRET
-    ├── Postgres                 # Deployment + Service + PVC
-    └── oficina-os-service              # Deployment (2 pods) + Service + HPA (2→5, CPU 70%)
+    ├── Ingress (nginx)          # /os, /clientes, /veiculos, /auth, /api, /health
+    └── oficina-os-service       # Deployment (2 pods) + Service ClusterIP + HPA (2→5, CPU 70%)
 ```
 
-- Atores externos acessam a API pelo `Service`; o cliente pode consultar o
+- Atores externos acessam a API pelo API Gateway; o cliente pode consultar o
   status da OS publicamente e um sistema externo aprova/reprova a OS pelo
   webhook (`POST /os/webhook/notificacao`, autenticado por `WEBHOOK_SECRET`).
 
@@ -140,20 +143,23 @@ Cluster Kubernetes (kind)
 ### Fluxo de deploy (CI/CD)
 
 Pipeline no GitHub Actions (`.github/workflows/ci-cd.yml`), disparado por push
-na `main`, rodando em runner `ubuntu-latest`:
+em `main` e `develop` (ignorando mudanças só em `docs/` e `*.md`), por
+pull_request para essas branches e manualmente (`workflow_dispatch`), rodando
+em runner `ubuntu-latest`:
 
-1. **build-and-test** — `yarn install`, `yarn build`, `yarn test:cov`
-   (com threshold de cobertura).
-2. **docker-build-push** — builda a imagem Docker e publica no GHCR.
-3. **deploy** — sobe um **cluster kind efêmero no próprio runner** e roda
-   `terraform apply`, que cria o cluster, carrega a imagem, provisiona o banco,
-   o metrics-server e aplica os manifestos do app; em seguida valida o rollout,
-   o HPA e o `/health`, e derruba o cluster ao final.
+1. **build-and-test** — `yarn install --frozen-lockfile`, `yarn build` e
+   `yarn test:cov` (com threshold de cobertura). Roda em `main` e `develop`.
+2. **terraform-check** — `terraform fmt -check`, `init -backend=false` e
+   `validate`, só checagens estáticas, sem credenciais AWS. Roda em `main` e
+   `develop`.
+3. **docker-build-push** — só na `main`: builda a imagem e publica no GHCR com
+   a tag do SHA do commit (e `latest`).
+4. **deploy** — só na `main`, no environment `prod`: atualiza o kubeconfig do
+   cluster EKS e aplica os manifestos no namespace `prod`.
 
-> O deploy usa **Terraform como mecanismo** (recursos `kubernetes_*` e
-> `kubectl_manifest`), não `kubectl apply` avulso.
-
-![img_2.png](cicd.png)
+Na `develop` o pipeline para em build, testes e checagem do Terraform: não
+publica imagem e não faz deploy. Sem secrets de AWS, o job `deploy` só emite
+um aviso e não publica nada no cluster.
 
 ---
 
@@ -182,13 +188,23 @@ repositório**. A divisão é:
 
 | Onde | Responsabilidade |
 |---|---|
-| `oficina-infra-k8s` | Provisiona o cluster EKS: node groups, rede, add-ons, namespaces |
+| `oficina-infra-k8s` | Provisiona o cluster EKS (node groups, rede, add-ons, namespaces), o NLB único e o API Gateway |
 | `oficina-infra-db` | Provisiona o RDS PostgreSQL |
-| **Este repo (`k8s/`)** | `Deployment`, `Service`, `HPA`, `ConfigMap` e o Job de migration — e o pipeline que aplica tudo isso |
+| **Este repo (`k8s/`)** | `Deployment`, `Service`, `Ingress`, `HPA`, `ConfigMap` e o Job de migration — e o pipeline que aplica tudo isso |
 
 A fronteira segue a ADR 0001: o repo de infraestrutura provisiona o
 ambiente, e o ciclo de vida da aplicação (incluindo o deploy dela) pertence
 a quem é dono do código.
+
+### Pré-requisitos e avisos
+
+- **A migration `fronteira_dados` é destrutiva e irreversível.** Ela faz
+  `DROP TABLE` em `movimentacoes_estoque`, `orcamentos`, `pecas` e `servicos`,
+  e não há migration de rollback. Só rodar contra o banco `oficina_os`
+  **vazio**: com dados, eles se perdem.
+- **O pacote da imagem no GHCR precisa ser público.** Os manifestos não têm
+  `imagePullSecrets`, então o cluster puxa `ghcr.io/.../oficina-os-service:<sha>`
+  sem credencial; com o pacote privado, o rollout não sobe.
 
 ### Como o deploy acontece
 
@@ -196,34 +212,43 @@ O pipeline deste repo, depois de publicar a imagem:
 
 1. `aws eks update-kubeconfig` — autentica no cluster provisionado pelo
    `oficina-infra-k8s`
-2. Confere se a `DATABASE_URL` resolvida é a do ambiente sendo deployado e
-   **aborta se não for** — trava contra apontar homologação para o banco de
-   produção
+2. Confere se a `DATABASE_URL` do environment `prod` aponta para o banco
+   `oficina_os` e **aborta se não apontar**; a mensagem de erro não imprime o
+   valor do secret
 3. Cria o `Secret` a partir dos secrets do environment (`DATABASE_URL`,
    `JWT_SECRET`, …) — nunca de arquivo versionado
-4. Aplica `ConfigMap` e `Service`
+4. Aplica `ConfigMap`, `Service` e `Ingress` (`k8s/ingress.yaml`)
 5. Aplica o **Job de migration e espera terminar** — se o schema falhar, o
    rollout é abortado e a versão nova nunca sobe contra um banco
    desatualizado (ADR 0005)
 6. Só então aplica `Deployment` e `HPA`, e aguarda o rollout
 
-A branch decide o ambiente: `develop` → namespace `homolog`, `main` →
-namespace `prod` (ADR 0002). A imagem é sempre a tag do **SHA** do commit,
-nunca `latest`, para o rollout apontar exatamente para o que aquele build
-produziu.
+Há um único ambiente, o namespace `prod`, e só a `main` faz deploy (ADR 0009).
+A imagem é sempre a tag do **SHA** do commit, nunca `latest`, para o rollout
+apontar exatamente para o que aquele build produziu.
 
-Cada ambiente é um **GitHub Environment** (`homolog` e `prod`) com seus
-próprios secrets. É isso que faz `secrets.DATABASE_URL` resolver para o banco
-certo: secret de environment tem precedência sobre o do repositório. Sem os
-environments configurados, os dois namespaces receberiam a mesma connection
-string — e é justamente por isso que o passo 2 existe.
+Os secrets ficam no **GitHub Environment** `prod`, não no escopo do repositório.
+É o environment que faz `secrets.DATABASE_URL` resolver para o banco certo. Os
+secrets lidos pelo pipeline são:
+
+| Secret | Uso |
+|---|---|
+| `DATABASE_URL` | Conexão com o banco `oficina_os` (RDS); o passo 2 recusa outro nome de banco |
+| `JWT_SECRET` | Chave de assinatura do JWT |
+| `WEBHOOK_SECRET` | Autenticação do webhook de notificação externa |
+| `NEW_RELIC_LICENSE_KEY` | Envio de telemetria ao New Relic |
+| `SNS_TOPIC_ARN` | Tópico SNS que recebe os eventos do outbox |
+| `SQS_QUEUE_URL` | Fila SQS consumida pela aplicação |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciais AWS (`configure-aws-credentials`) |
+| `AWS_SESSION_TOKEN` | Opcional; só para credencial temporária (AWS Academy Learner Lab) |
 
 ### Manifestos (`k8s/`)
 
 | Arquivo | O que é |
 |---|---|
 | `deployment.yaml` | Deployment da API (2 réplicas, probes em `/health`) |
-| `service.yaml` | Service que expõe a API no cluster |
+| `service.yaml` | Service `ClusterIP` na porta 80, apontando para a 3000 do pod |
+| `ingress.yaml` | Ingress nginx: roteia `/os`, `/clientes`, `/veiculos`, `/auth` e `/api` (prefixo) e `/health` (exato) para o Service, sem rewrite |
 | `hpa.yaml` | HPA de 2 a 5 réplicas a 70% de CPU (ADR 0003) |
 | `configmap.yaml` | Config não sensível (`NODE_ENV`, `PORT`, …) |
 | `migration-job.yaml` | Job que roda `prisma migrate deploy` dentro do cluster |
@@ -237,10 +262,10 @@ ambientes, e o `kubectl apply -n` do pipeline decide qual. `${APP_IMAGE}` e
 
 ```bash
 export APP_IMAGE=ghcr.io/guimullerdev/oficina-os-service:<sha>
-export NAMESPACE=homolog
+export NAMESPACE=prod
 export MIGRATION_JOB_NAME=oficina-migrate-manual
 
-kubectl apply -n "$NAMESPACE" -f k8s/configmap.yaml -f k8s/service.yaml
+kubectl apply -n "$NAMESPACE" -f k8s/configmap.yaml -f k8s/service.yaml -f k8s/ingress.yaml
 envsubst < k8s/migration-job.yaml | kubectl apply -n "$NAMESPACE" -f -
 kubectl wait -n "$NAMESPACE" --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=300s
 envsubst < k8s/deployment.yaml  | kubectl apply -n "$NAMESPACE" -f -
