@@ -1,0 +1,56 @@
+# Namespace decidido por `kubectl apply -n $NAMESPACE` (ver service.yaml).
+# Sem rewrite: cada controller do serviço (os, clientes, veiculos, auth) ganha
+# seu path; /health e /api (Swagger) também.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oficina-os-service
+  labels:
+    app: oficina-os-service
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /os
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
+          - path: /clientes
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
+          - path: /veiculos
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-os-service
+                port:
+                  number: 80
