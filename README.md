@@ -385,6 +385,25 @@ perfil específico, por exemplo:
 | `JWT_EXPIRES_IN` | Validade do token | `8h` |
 | `WEBHOOK_SECRET` | Segredo do webhook de notificação externa | `dev_webhook_secret` |
 | `NODE_ENV` | Ambiente da aplicação | `development` |
+| `SNS_TOPIC_ARN` | ARN do tópico SNS que recebe os eventos do outbox | — |
+| `OUTBOX_PUBLISHER_ENABLED` | Liga o publisher periódico do outbox (`true`); desligado se ausente | — |
+| `OUTBOX_PUBLISH_INTERVAL_MS` | Intervalo entre lotes do publisher | `5000` |
+| `OUTBOX_BATCH_SIZE` | Linhas por lote | `50` |
+
+### Publicação de eventos (outbox → SNS)
+
+O `OutboxPublisher` (`src/shared/messaging/`) varre a tabela `outbox` a cada
+`OUTBOX_PUBLISH_INTERVAL_MS` e publica as linhas pendentes no tópico SNS, com os
+atributos `evento` (usado pela filter policy), `eventId` (id da linha),
+`correlationId` e `traceparent`.
+
+- **At-least-once:** `published_at` só é preenchido depois que o SNS confirma,
+  na mesma transação do lote. Se a transação falhar após o publish, o evento
+  é reenviado, então os consumidores devem deduplicar por `eventId`. Falhas
+  incrementam `tentativas` e gravam `ultimo_erro`; o lote segue.
+- **`FOR UPDATE SKIP LOCKED`:** cada lote bloqueia as linhas que pegou e as
+  réplicas simultâneas pulam as linhas já bloqueadas, sem publicar o mesmo
+  evento em paralelo.
 
 ---
 
