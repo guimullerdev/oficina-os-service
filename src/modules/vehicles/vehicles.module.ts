@@ -11,18 +11,18 @@ import { UpdateVeiculoUseCase } from './application/use-cases/update-vehicle.use
 import { DeactivateVeiculoUseCase } from './application/use-cases/delete-vehicle.usecase';
 
 @Module({
-    imports: [PrismaModule, CustomersModule],
-    controllers: [VehiclesController],
-    providers: [
-        CreateVeiculoUseCase,
-        GetVeiculoUseCase,
-        UpdateVeiculoUseCase,
-        DeactivateVeiculoUseCase,
-        {
-            provide: VEICULO_REPOSITORY,
-            useClass: VeiculoPrismaRepository,
-        },
-    ],
-    exports: [VEICULO_REPOSITORY],
+  imports: [PrismaModule, CustomersModule],
+  controllers: [VehiclesController],
+  providers: [
+    CreateVeiculoUseCase,
+    GetVeiculoUseCase,
+    UpdateVeiculoUseCase,
+    DeactivateVeiculoUseCase,
+    {
+      provide: VEICULO_REPOSITORY,
+      useClass: VeiculoPrismaRepository,
+    },
+  ],
+  exports: [VEICULO_REPOSITORY],
 })
 export class VehiclesModule {}

@@ -1,8 +1,8 @@
 import {
-    CallHandler,
-    ExecutionContext,
-    Injectable,
-    NestInterceptor,
+  CallHandler,
+  ExecutionContext,
+  Injectable,
+  NestInterceptor,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Observable, tap } from 'rxjs';
@@ -25,20 +25,20 @@ export { EVENTO_TRANSICAO_STATUS } from '../../application/os-status-metrics.ser
  */
 @Injectable()
 export class OsStatusMetricsInterceptor implements NestInterceptor {
-    constructor(private readonly metrics: OsStatusMetrics) {}
+  constructor(private readonly metrics: OsStatusMetrics) {}
 
-    intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-        const request = context.switchToHttp().getRequest<Request>();
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const request = context.switchToHttp().getRequest<Request>();
 
-        return next.handle().pipe(
-            tap((resposta) => {
-                if (!(resposta instanceof OrdemDeServico)) return;
+    return next.handle().pipe(
+      tap((resposta) => {
+        if (!(resposta instanceof OrdemDeServico)) return;
 
-                this.metrics.registrarTransicao(
-                    resposta,
-                    (request as Request & { id?: string }).id,
-                );
-            }),
+        this.metrics.registrarTransicao(
+          resposta,
+          (request as Request & { id?: string }).id,
         );
-    }
+      }),
+    );
+  }
 }

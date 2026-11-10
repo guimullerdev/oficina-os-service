@@ -26,28 +26,28 @@ export const EVENTO_TRANSICAO_STATUS = 'os.status.transicao';
  */
 @Injectable()
 export class OsStatusMetrics {
-    constructor(private readonly logger: PinoLogger) {}
+  constructor(private readonly logger: PinoLogger) {}
 
-    registrarTransicao(os: OrdemDeServico, correlationId?: string): void {
-        const duracao = os.duracaoUltimoStatusSegundos;
-        // undefined = OS recém-criada, ainda sem transição anterior para
-        // medir. Não é erro, só não há intervalo.
-        if (duracao === undefined) return;
+  registrarTransicao(os: OrdemDeServico, correlationId?: string): void {
+    const duracao = os.duracaoUltimoStatusSegundos;
+    // undefined = OS recém-criada, ainda sem transição anterior para
+    // medir. Não é erro, só não há intervalo.
+    if (duracao === undefined) return;
 
-        const historico = os.historicoStatus;
-        const ultima = historico[historico.length - 1];
+    const historico = os.historicoStatus;
+    const ultima = historico[historico.length - 1];
 
-        this.logger.info(
-            {
-                event: EVENTO_TRANSICAO_STATUS,
-                correlationId,
-                osId: os.id,
-                osNumero: os.numero,
-                statusAnterior: ultima.statusAnterior,
-                statusNovo: ultima.statusNovo,
-                duracaoSegundos: duracao,
-            },
-            'Transição de status da ordem de serviço',
-        );
-    }
+    this.logger.info(
+      {
+        event: EVENTO_TRANSICAO_STATUS,
+        correlationId,
+        osId: os.id,
+        osNumero: os.numero,
+        statusAnterior: ultima.statusAnterior,
+        statusNovo: ultima.statusNovo,
+        duracaoSegundos: duracao,
+      },
+      'Transição de status da ordem de serviço',
+    );
+  }
 }

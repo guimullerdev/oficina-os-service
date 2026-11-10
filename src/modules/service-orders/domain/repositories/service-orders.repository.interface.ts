@@ -5,11 +5,24 @@ import { DomainEvent } from '../../../../shared/messaging/domain-event';
 export type TrabalhoNaTransacao = (tx: unknown) => Promise<unknown>;
 
 export interface IOrdemDeServicoRepository {
-    findById(id: string): Promise<OrdemDeServico | null>;
-    findAll(filters?: { status?: StatusOS; clienteId?: string; veiculoId?: string; incluirArquivadas?: boolean }): Promise<OrdemDeServico[]>;
-    create(os: OrdemDeServico, events?: DomainEvent[], naTransacao?: TrabalhoNaTransacao): Promise<OrdemDeServico>;
-    update(os: OrdemDeServico, events?: DomainEvent[], naTransacao?: TrabalhoNaTransacao): Promise<OrdemDeServico>;
-    generateNumero(): Promise<string>;
+  findById(id: string): Promise<OrdemDeServico | null>;
+  findAll(filters?: {
+    status?: StatusOS;
+    clienteId?: string;
+    veiculoId?: string;
+    incluirArquivadas?: boolean;
+  }): Promise<OrdemDeServico[]>;
+  create(
+    os: OrdemDeServico,
+    events?: DomainEvent[],
+    naTransacao?: TrabalhoNaTransacao,
+  ): Promise<OrdemDeServico>;
+  update(
+    os: OrdemDeServico,
+    events?: DomainEvent[],
+    naTransacao?: TrabalhoNaTransacao,
+  ): Promise<OrdemDeServico>;
+  generateNumero(): Promise<string>;
 }
 
 /**
@@ -18,9 +31,13 @@ export interface IOrdemDeServicoRepository {
  * itens da OS.
  */
 export interface IOrdemDeServicoRepositoryTransacional {
-    findByIdInTx(id: string, tx: unknown): Promise<OrdemDeServico | null>;
-    /** grava só status/updatedAt/histórico se status atual no banco === statusEsperado; false se não */
-    updateStatusInTx(os: OrdemDeServico, statusEsperado: StatusOS, tx: unknown): Promise<boolean>;
+  findByIdInTx(id: string, tx: unknown): Promise<OrdemDeServico | null>;
+  /** grava só status/updatedAt/histórico se status atual no banco === statusEsperado; false se não */
+  updateStatusInTx(
+    os: OrdemDeServico,
+    statusEsperado: StatusOS,
+    tx: unknown,
+  ): Promise<boolean>;
 }
 
 export const ORDEM_DE_SERVICO_REPOSITORY = Symbol('IOrdemDeServicoRepository');

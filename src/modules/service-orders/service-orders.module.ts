@@ -12,8 +12,8 @@ import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
 
 import {
-    IOrdemDeServicoRepositoryTransacional,
-    ORDEM_DE_SERVICO_REPOSITORY,
+  IOrdemDeServicoRepositoryTransacional,
+  ORDEM_DE_SERVICO_REPOSITORY,
 } from './domain/repositories/service-orders.repository.interface';
 import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/service-orders-prisma.repository';
 import { ServiceOrdersController } from './presentation/service-orders.controller';
@@ -49,70 +49,81 @@ import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/proc
 import { GetSagaUseCase } from './application/saga/get-saga.usecase';
 
 @Module({
-    imports: [PrismaModule, VehiclesModule, CustomersModule, MessagingModule],
-    controllers: [ServiceOrdersController],
-    providers: [
+  imports: [PrismaModule, VehiclesModule, CustomersModule, MessagingModule],
+  controllers: [ServiceOrdersController],
+  providers: [
+    OsStatusMetrics,
+    OutboxWriter,
+    SagaPrismaRepository,
+    {
+      provide: SagaOrchestrator,
+      useFactory: (
+        prisma: PrismaService,
+        repo: SagaPrismaRepository,
+        outbox: OutboxWriter,
+      ) => new SagaOrchestrator(prisma, repo, outbox),
+      inject: [PrismaService, SagaPrismaRepository, OutboxWriter],
+    },
+    CreateOrdemDeServicoUseCase,
+    GetOrdemDeServicoUseCase,
+    UpdateOrdemDeServicoUseCase,
+    DeleteOrdemDeServicoUseCase,
+    AddServicoToOsUseCase,
+    RemoveServicoFromOsUseCase,
+    AddPecaToOsUseCase,
+    RemovePecaFromOsUseCase,
+    StartDiagnosisUseCase,
+    FinishDiagnosisUseCase,
+    IniciarExecucaoUseCase,
+    RealizarServicoUseCase,
+    UtilizarPecaUseCase,
+    FinishOrderUseCase,
+    LiberarVeiculoUseCase,
+    DeliverOrderUseCase,
+    SendBudgetUseCase,
+    ApproveBudgetUseCase,
+    RejectBudgetUseCase,
+    GetOsAcompanhamentoUseCase,
+    GetTempoMedioOsUseCase,
+    ConsultaPublicaOsUseCase,
+    ProcessarWebhookNotificacaoUseCase,
+    GetSagaUseCase,
+    {
+      // Expira passos de saga vencidos (SAGA_TIMEOUT_ENABLED); seguro com N réplicas (SKIP LOCKED).
+      provide: SagaTimeoutScheduler,
+      useFactory: (orchestrator: SagaOrchestrator, config: ConfigService) =>
+        new SagaTimeoutScheduler(orchestrator, config),
+      inject: [SagaOrchestrator, ConfigService],
+    },
+    {
+      // Registra os handlers da saga na criação (antes de o consumidor SQS iniciar).
+      provide: 'SAGA_EVENT_HANDLERS',
+      useFactory: (
+        registry: MessageHandlerRegistry,
+        orchestrator: SagaOrchestrator,
+        osRepo: IOrdemDeServicoRepositoryTransacional,
+        metrics: OsStatusMetrics,
+      ) => {
+        const compensador = new SagaCompensador(osRepo, metrics);
+        const handlers = criarSagaEventHandlers(
+          orchestrator,
+          compensador.aoCompensar,
+        );
+        handlers.forEach((h) => registry.register(h));
+        return handlers;
+      },
+      inject: [
+        MessageHandlerRegistry,
+        SagaOrchestrator,
+        ORDEM_DE_SERVICO_REPOSITORY,
         OsStatusMetrics,
-        OutboxWriter,
-        SagaPrismaRepository,
-        {
-            provide: SagaOrchestrator,
-            useFactory: (prisma: PrismaService, repo: SagaPrismaRepository, outbox: OutboxWriter) =>
-                new SagaOrchestrator(prisma, repo, outbox),
-            inject: [PrismaService, SagaPrismaRepository, OutboxWriter],
-        },
-        CreateOrdemDeServicoUseCase,
-        GetOrdemDeServicoUseCase,
-        UpdateOrdemDeServicoUseCase,
-        DeleteOrdemDeServicoUseCase,
-        AddServicoToOsUseCase,
-        RemoveServicoFromOsUseCase,
-        AddPecaToOsUseCase,
-        RemovePecaFromOsUseCase,
-        StartDiagnosisUseCase,
-        FinishDiagnosisUseCase,
-        IniciarExecucaoUseCase,
-        RealizarServicoUseCase,
-        UtilizarPecaUseCase,
-        FinishOrderUseCase,
-        LiberarVeiculoUseCase,
-        DeliverOrderUseCase,
-        SendBudgetUseCase,
-        ApproveBudgetUseCase,
-        RejectBudgetUseCase,
-        GetOsAcompanhamentoUseCase,
-        GetTempoMedioOsUseCase,
-        ConsultaPublicaOsUseCase,
-        ProcessarWebhookNotificacaoUseCase,
-        GetSagaUseCase,
-        {
-            // Expira passos de saga vencidos (SAGA_TIMEOUT_ENABLED); seguro com N réplicas (SKIP LOCKED).
-            provide: SagaTimeoutScheduler,
-            useFactory: (orchestrator: SagaOrchestrator, config: ConfigService) =>
-                new SagaTimeoutScheduler(orchestrator, config),
-            inject: [SagaOrchestrator, ConfigService],
-        },
-        {
-            // Registra os handlers da saga na criação (antes de o consumidor SQS iniciar).
-            provide: 'SAGA_EVENT_HANDLERS',
-            useFactory: (
-                registry: MessageHandlerRegistry,
-                orchestrator: SagaOrchestrator,
-                osRepo: IOrdemDeServicoRepositoryTransacional,
-                metrics: OsStatusMetrics,
-            ) => {
-                const compensador = new SagaCompensador(osRepo, metrics);
-                const handlers = criarSagaEventHandlers(orchestrator, compensador.aoCompensar);
-                handlers.forEach((h) => registry.register(h));
-                return handlers;
-            },
-            inject: [MessageHandlerRegistry, SagaOrchestrator, ORDEM_DE_SERVICO_REPOSITORY, OsStatusMetrics],
-        },
-        {
-            provide: ORDEM_DE_SERVICO_REPOSITORY,
-            useClass: OrdemDeServicoPrismaRepository,
-        },
-    ],
-    exports: [ORDEM_DE_SERVICO_REPOSITORY, SagaOrchestrator],
+      ],
+    },
+    {
+      provide: ORDEM_DE_SERVICO_REPOSITORY,
+      useClass: OrdemDeServicoPrismaRepository,
+    },
+  ],
+  exports: [ORDEM_DE_SERVICO_REPOSITORY, SagaOrchestrator],
 })
 export class ServiceOrdersModule {}

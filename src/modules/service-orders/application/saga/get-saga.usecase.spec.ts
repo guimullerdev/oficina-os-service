@@ -1,5 +1,7 @@
 // O alias `src/` não é resolvido pelo Jest deste projeto; PrismaService só é token de DI.
-jest.mock('src/prisma/prisma.service', () => ({ PrismaService: class {} }), { virtual: true });
+jest.mock('src/prisma/prisma.service', () => ({ PrismaService: class {} }), {
+  virtual: true,
+});
 
 import { NotFoundException } from '@nestjs/common';
 

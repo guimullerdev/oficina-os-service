@@ -10,18 +10,18 @@ import { UpdateClienteUseCase } from './application/use-cases/update-customers.u
 import { DeactivateClienteUseCase } from './application/use-cases/delete-customers.usecase';
 
 @Module({
-    imports: [PrismaModule],
-    controllers: [CustomersController],
-    providers: [
-        CreateClienteUseCase,
-        GetClienteUseCase,
-        UpdateClienteUseCase,
-        DeactivateClienteUseCase,
-        {
-            provide: CLIENTE_REPOSITORY,
-            useClass: ClientePrismaRepository,
-        },
-    ],
-    exports: [CLIENTE_REPOSITORY],
+  imports: [PrismaModule],
+  controllers: [CustomersController],
+  providers: [
+    CreateClienteUseCase,
+    GetClienteUseCase,
+    UpdateClienteUseCase,
+    DeactivateClienteUseCase,
+    {
+      provide: CLIENTE_REPOSITORY,
+      useClass: ClientePrismaRepository,
+    },
+  ],
+  exports: [CLIENTE_REPOSITORY],
 })
 export class CustomersModule {}
