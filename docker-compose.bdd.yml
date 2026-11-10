@@ -1,0 +1,97 @@
+# Stack isolado para o teste BDD da saga (Fase 8).
+# Projeto, portas e volumes próprios: não colide com o docker-compose.yml de dev.
+#
+#   docker compose -f docker-compose.bdd.yml up -d --build --wait
+#   docker compose -f docker-compose.bdd.yml down -v
+#
+# Portas no host: app 3100, Postgres 55432, LocalStack 4567.
+# Valores em .env.bdd (só de teste); os defaults abaixo valem sem o arquivo.
+name: oficina-os-bdd
+
+x-app-image: &app-image oficina-os-bdd-app:local
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: oficina
+      POSTGRES_PASSWORD: oficina
+      POSTGRES_DB: oficina_bdd
+    ports:
+      - '${BDD_PG_PORT:-55432}:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U oficina -d oficina_bdd']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: sns,sqs
+    ports:
+      - '${BDD_LOCALSTACK_PORT:-4567}:4566'
+    volumes:
+      - ./scripts/localstack/init-sns.sh:/etc/localstack/init/ready.d/init-sns.sh
+    healthcheck:
+      # Só fica healthy depois que os scripts de ready.d terminaram.
+      test: ['CMD-SHELL', 'curl -sf localhost:4566/_localstack/init/ready | grep -Eq "\"completed\": *true"']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: *app-image
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgresql://oficina:oficina@postgres:5432/oficina_bdd
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Sem seed: o usuário de staff do gate-1r é criado via POST /auth/register
+    # (público); prisma/seed-demo.sql não cria usuários.
+
+  app:
+    image: *app-image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgresql://oficina:oficina@postgres:5432/oficina_bdd
+      JWT_SECRET: bdd_test_secret
+      JWT_EXPIRES_IN: 8h
+      WEBHOOK_SECRET: bdd_webhook_secret
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:oficina-os-events
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/oficina-os-queue
+      SQS_CONSUMER_ENABLED: 'true'
+      SQS_WAIT_TIME_SECONDS: '1'
+      SQS_VISIBILITY_TIMEOUT_SECONDS: '30'
+      OUTBOX_PUBLISHER_ENABLED: 'true'
+      OUTBOX_PUBLISH_INTERVAL_MS: '500'
+      SAGA_TIMEOUT_ENABLED: 'true'
+      SAGA_TIMEOUT_INTERVAL_MS: '1000'
+    ports:
+      - '${BDD_APP_PORT:-3100}:3000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health >/dev/null']
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
