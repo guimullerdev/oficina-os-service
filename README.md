@@ -389,6 +389,9 @@ perfil específico, por exemplo:
 | `OUTBOX_PUBLISHER_ENABLED` | Liga o publisher periódico do outbox (`true`); desligado se ausente | — |
 | `OUTBOX_PUBLISH_INTERVAL_MS` | Intervalo entre lotes do publisher | `5000` |
 | `OUTBOX_BATCH_SIZE` | Linhas por lote | `50` |
+| `SAGA_TIMEOUT_ENABLED` | Liga o scheduler que expira passos de saga vencidos (`true`); desligado se ausente | — |
+| `SAGA_TIMEOUT_INTERVAL_MS` | Intervalo entre execuções do scheduler de time-out | `30000` |
+| `SAGA_TIMEOUT_<PASSO>_MS` | Prazo do passo (`ABRIR_OS`, `GERAR_ORCAMENTO`, `APROVAR_ORCAMENTO`, `EXECUTAR`, `COBRAR`, `CONFIRMAR`) | 1h (`APROVAR_ORCAMENTO`: 24h) |
 
 ### Publicação de eventos (outbox → SNS)
 
@@ -418,6 +421,23 @@ e despacha cada mensagem ao handler do `evento` via `IdempotentProcessor`.
 - **Mensagem envenenada:** JSON inválido, `evento` ausente ou desconhecido e
   erro do handler não removem a mensagem da fila; após 3 recebimentos a
   `redrive_policy` a move para a DLQ. Só sucesso (ou duplicata) apaga a mensagem.
+
+### Time-out de passos da saga
+
+O `SagaTimeoutScheduler` (`src/modules/service-orders/application/saga/`) roda no
+próprio processo HTTP, ligado por `SAGA_TIMEOUT_ENABLED=true`. A cada
+`SAGA_TIMEOUT_INTERVAL_MS` ele chama `SagaOrchestrator.expirarVencidos`, que
+procura passos `EM_ANDAMENTO` com `expira_em` no passado (até 50 por execução).
+Cada passo vencido passa por `EXPIRADO` e termina `COMPENSADO`, a saga vira
+`COMPENSADA` e o evento `saga.passo.expirado` entra no outbox. A OS não é alterada.
+
+- **`FOR UPDATE SKIP LOCKED` com 2 réplicas:** as duas rodam o scheduler, mas a
+  seleção trava os passos que pegou e a outra réplica pula as linhas travadas,
+  então cada passo expira uma única vez (um só `saga.passo.expirado`). A escrita
+  ainda é condicional ao status `EM_ANDAMENTO`: se um evento da saga concluiu o
+  passo no meio do caminho, ele vence o time-out.
+- **Falha:** qualquer erro reverte o lote inteiro (nada fica pela metade) e é
+  logado; o próximo tick tenta de novo. Ticks não se sobrepõem na mesma réplica.
 
 ---
 

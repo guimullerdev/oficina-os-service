@@ -12,6 +12,9 @@ data:
   OUTBOX_PUBLISH_INTERVAL_MS: "5000"
   OUTBOX_BATCH_SIZE: "50"
   OUTBOX_PUBLISHER_ENABLED: "true"
+  SAGA_TIMEOUT_ENABLED: "true"
+  SAGA_TIMEOUT_INTERVAL_MS: "30000"
+  # Timeout por passo: SAGA_TIMEOUT_<PASSO>_MS (default 1h; APROVAR_ORCAMENTO 24h)
   # Liga após a Fase 6 criar oficina-os-queue e o secret SQS_QUEUE_URL
   SQS_CONSUMER_ENABLED: "false"
   SQS_WAIT_TIME_SECONDS: "20"
