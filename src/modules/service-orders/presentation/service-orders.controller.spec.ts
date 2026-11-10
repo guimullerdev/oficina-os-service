@@ -14,7 +14,6 @@ import { UtilizarPecaUseCase } from '../application/use-cases/utilizar-peca.usec
 import { FinishOrderUseCase } from '../application/use-cases/finish-order.usecase';
 import { LiberarVeiculoUseCase } from '../application/use-cases/liberar-veiculo.usecase';
 import { DeliverOrderUseCase } from '../application/use-cases/deliver-order.usecase';
-import { GetOrcamentoUseCase } from '../../orcamentos/application/use-cases/get-orcamento.usecase';
 import { GetOsAcompanhamentoUseCase } from '../application/use-cases/get-os-acompanhamento.usecase';
 import { GetTempoMedioOsUseCase } from '../application/use-cases/get-tempo-medio-os.usecase';
 import { ConsultaPublicaOsUseCase } from '../application/use-cases/consulta-publica-os.usecase';
@@ -46,7 +45,6 @@ describe('ServiceOrdersController', () => {
     let finishOrderUC: { execute: jest.Mock };
     let liberarVeiculoUC: { execute: jest.Mock };
     let deliverUC: { execute: jest.Mock };
-    let getOrcamentoUC: { execute: jest.Mock; executeByOsId: jest.Mock };
     let getAcompanhamentoUC: { execute: jest.Mock };
     let getTempoMedioUC: { execute: jest.Mock };
     let consultaPublicaUC: { execute: jest.Mock };
@@ -67,7 +65,6 @@ describe('ServiceOrdersController', () => {
         finishOrderUC = { execute: jest.fn().mockResolvedValue({ id: 'os-1' }) };
         liberarVeiculoUC = { execute: jest.fn().mockResolvedValue({ id: 'os-1' }) };
         deliverUC = { execute: jest.fn().mockResolvedValue({ id: 'os-1' }) };
-        getOrcamentoUC = { execute: jest.fn().mockResolvedValue({ id: 'orc-1' }), executeByOsId: jest.fn().mockResolvedValue({ id: 'orc-1' }) };
         getAcompanhamentoUC = { execute: jest.fn().mockResolvedValue({ id: 'os-1', statusAtual: 'RECEBIDA' }) };
         getTempoMedioUC = { execute: jest.fn().mockResolvedValue({ totalOsConsideradas: 0, tempoMedioEmHoras: 0 }) };
         consultaPublicaUC = { execute: jest.fn().mockResolvedValue({ numero: 'OS-001', status: 'RECEBIDA' }) };
@@ -90,7 +87,6 @@ describe('ServiceOrdersController', () => {
                 { provide: FinishOrderUseCase, useValue: finishOrderUC },
                 { provide: LiberarVeiculoUseCase, useValue: liberarVeiculoUC },
                 { provide: DeliverOrderUseCase, useValue: deliverUC },
-                { provide: GetOrcamentoUseCase, useValue: getOrcamentoUC },
                 { provide: GetOsAcompanhamentoUseCase, useValue: getAcompanhamentoUC },
                 { provide: GetTempoMedioOsUseCase, useValue: getTempoMedioUC },
                 { provide: ConsultaPublicaOsUseCase, useValue: consultaPublicaUC },
@@ -127,8 +123,8 @@ describe('ServiceOrdersController', () => {
     });
 
     it('addServico delegates to AddServicoToOsUseCase', async () => {
-        await controller.addServico('os-1', { servicoId: 's-1' });
-        expect(addServicoUC.execute).toHaveBeenCalledWith('os-1', 's-1');
+        await controller.addServico('os-1', { servicoId: 's-1', precoUnitario: 80 });
+        expect(addServicoUC.execute).toHaveBeenCalledWith('os-1', 's-1', 80);
     });
 
     it('removeServico delegates to RemoveServicoFromOsUseCase', async () => {
@@ -137,8 +133,8 @@ describe('ServiceOrdersController', () => {
     });
 
     it('addPeca delegates to AddPecaToOsUseCase', async () => {
-        await controller.addPeca('os-1', { pecaId: 'p-1', quantidade: 2 });
-        expect(addPecaUC.execute).toHaveBeenCalledWith('os-1', 'p-1', 2);
+        await controller.addPeca('os-1', { pecaId: 'p-1', quantidade: 2, precoUnitario: 25 });
+        expect(addPecaUC.execute).toHaveBeenCalledWith('os-1', 'p-1', 2, 25);
     });
 
     it('removePeca delegates to RemovePecaFromOsUseCase', async () => {
@@ -186,9 +182,14 @@ describe('ServiceOrdersController', () => {
         expect(deliverUC.execute).toHaveBeenCalledWith('os-1');
     });
 
-    it('getOrcamento delegates to GetOrcamentoUseCase.executeByOsId', async () => {
-        await controller.getOrcamento('os-1');
-        expect(getOrcamentoUC.executeByOsId).toHaveBeenCalledWith('os-1');
+    it('não expõe mais a rota de orçamento (movida para o serviço de orçamentos)', () => {
+        expect((controller as any).getOrcamento).toBeUndefined();
+    });
+
+    it('webhookNotificacao delega ao ProcessarWebhookNotificacaoUseCase com o ip', async () => {
+        const dto = { osId: 'os-1', acao: 'APROVAR' };
+        await controller.webhookNotificacao(dto as any, '127.0.0.1');
+        expect(processarWebhookUC.execute).toHaveBeenCalledWith(dto, '127.0.0.1');
     });
 
     it('consultaPublica delegates to ConsultaPublicaOsUseCase', async () => {

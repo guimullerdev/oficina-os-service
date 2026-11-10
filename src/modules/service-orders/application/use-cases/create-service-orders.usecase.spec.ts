@@ -110,11 +110,11 @@ describe('CreateOrdemDeServicoUseCase', () => {
 
             const result = await useCase.execute({
                 clienteId: 'c-1', veiculoId: 'v-1',
-                servicos: [{ servicoId: 's-1' }],
+                servicos: [{ servicoId: 's-1', precoUnitario: 100 }],
             });
 
             expect(addServico.execute).toHaveBeenCalledTimes(1);
-            expect(addServico.execute).toHaveBeenCalledWith(createdOs.id, 's-1');
+            expect(addServico.execute).toHaveBeenCalledWith(createdOs.id, 's-1', 100);
             expect(result.servicos).toHaveLength(1);
         });
 
@@ -134,12 +134,12 @@ describe('CreateOrdemDeServicoUseCase', () => {
 
             await useCase.execute({
                 clienteId: 'c-1', veiculoId: 'v-1',
-                servicos: [{ servicoId: 's-1' }, { servicoId: 's-2' }],
+                servicos: [{ servicoId: 's-1', precoUnitario: 100 }, { servicoId: 's-2', precoUnitario: 200 }],
             });
 
             expect(addServico.execute).toHaveBeenCalledTimes(2);
-            expect(addServico.execute).toHaveBeenNthCalledWith(1, baseOs.id, 's-1');
-            expect(addServico.execute).toHaveBeenNthCalledWith(2, baseOs.id, 's-2');
+            expect(addServico.execute).toHaveBeenNthCalledWith(1, baseOs.id, 's-1', 100);
+            expect(addServico.execute).toHaveBeenNthCalledWith(2, baseOs.id, 's-2', 200);
         });
 
         it('does not call addServicoUseCase when servicos is absent', async () => {
@@ -169,11 +169,11 @@ describe('CreateOrdemDeServicoUseCase', () => {
 
             const result = await useCase.execute({
                 clienteId: 'c-1', veiculoId: 'v-1',
-                pecas: [{ pecaId: 'p-1', quantidade: 2 }],
+                pecas: [{ pecaId: 'p-1', quantidade: 2, precoUnitario: 50 }],
             });
 
             expect(addPeca.execute).toHaveBeenCalledTimes(1);
-            expect(addPeca.execute).toHaveBeenCalledWith(createdOs.id, 'p-1', 2);
+            expect(addPeca.execute).toHaveBeenCalledWith(createdOs.id, 'p-1', 2, 50);
             expect(result.pecas).toHaveLength(1);
         });
 
