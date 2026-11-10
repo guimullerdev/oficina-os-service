@@ -75,3 +75,6 @@ override.tf.json
 
 # Log que o agente New Relic escreve em disco
 newrelic_agent.log
+
+# planos locais (não versionar)
+docs/plano-fase*.md
