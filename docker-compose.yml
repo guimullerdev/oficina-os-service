@@ -40,7 +40,7 @@ services:
       - /app/node_modules
 
   localstack:
-    image: localstack/localstack
+    image: localstack/localstack:3.8
     container_name: oficina_localstack
     restart: unless-stopped
     environment:
