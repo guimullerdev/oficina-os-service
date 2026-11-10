@@ -3,6 +3,9 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { MessagingModule } from '../../shared/messaging/messaging.module';
+import { MessageHandlerRegistry } from '../../shared/messaging/handlers/message-handler.registry';
+import { criarSagaEventHandlers } from './application/saga/handlers/saga-event.handler';
 import { OutboxWriter } from '../../shared/messaging/outbox.writer';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
@@ -38,10 +41,9 @@ import { GetTempoMedioOsUseCase } from './application/use-cases/get-tempo-medio-
 import { ConsultaPublicaOsUseCase } from './application/use-cases/consulta-publica-os.usecase';
 import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/processar-webhook-notificacao.usecase';
 import { GetSagaUseCase } from './application/saga/get-saga.usecase';
-import { SagaPrismaRepository } from './application/saga/saga.repository';
 
 @Module({
-    imports: [PrismaModule, VehiclesModule, CustomersModule],
+    imports: [PrismaModule, VehiclesModule, CustomersModule, MessagingModule],
     controllers: [ServiceOrdersController],
     providers: [
         OsStatusMetrics,
@@ -78,6 +80,16 @@ import { SagaPrismaRepository } from './application/saga/saga.repository';
         ProcessarWebhookNotificacaoUseCase,
         GetSagaUseCase,
         SagaPrismaRepository,
+        {
+            // Registra os handlers da saga na criação (antes de o consumidor SQS iniciar).
+            provide: 'SAGA_EVENT_HANDLERS',
+            useFactory: (registry: MessageHandlerRegistry, orchestrator: SagaOrchestrator) => {
+                const handlers = criarSagaEventHandlers(orchestrator);
+                handlers.forEach((h) => registry.register(h));
+                return handlers;
+            },
+            inject: [MessageHandlerRegistry, SagaOrchestrator],
+        },
         {
             provide: ORDEM_DE_SERVICO_REPOSITORY,
             useClass: OrdemDeServicoPrismaRepository,

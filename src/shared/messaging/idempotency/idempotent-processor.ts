@@ -37,7 +37,7 @@ export class IdempotentProcessor {
         await tx.mensagemProcessada.create({
           data: { eventId, evento: message.evento },
         });
-        await handler.handle(message);
+        await handler.handle(message, tx);
       });
       return 'processed';
     } catch (error) {
