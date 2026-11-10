@@ -178,3 +178,16 @@ model Outbox {
   @@index([publishedAt, createdAt])
   @@map("outbox")
 }
+
+// ---------------------------------------------------------------------------
+// Consumidor SQS (idempotência)
+// ---------------------------------------------------------------------------
+
+model MensagemProcessada {
+  id          String   @id @default(uuid())
+  eventId     String   @unique @map("event_id")
+  evento      String
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("mensagens_processadas")
+}
