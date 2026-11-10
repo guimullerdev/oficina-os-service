@@ -162,6 +162,35 @@ describe('OrdemDeServicoPrismaRepository outbox integration', () => {
       await repo.create(makeOs(), []);
       expect(tx.outbox.createMany).not.toHaveBeenCalled();
     });
+
+    it('runs naTransacao with the tx right after the outbox append', async () => {
+      const { repo, tx, calls } = setup();
+      const trabalho = jest.fn().mockImplementation(() => {
+        calls.push('naTransacao');
+        return Promise.resolve();
+      });
+
+      await repo.create(makeOs(), [event], trabalho);
+
+      expect(trabalho).toHaveBeenCalledWith(tx);
+      expect(calls).toEqual([
+        'tx.begin',
+        'os.create',
+        'outbox.createMany',
+        'naTransacao',
+        'tx.commit',
+      ]);
+    });
+
+    it('rejects when naTransacao fails on create', async () => {
+      const { repo } = setup();
+
+      await expect(
+        repo.create(makeOs(), [event], () =>
+          Promise.reject(new Error('saga down')),
+        ),
+      ).rejects.toThrow('saga down');
+    });
   });
 
   describe('update()', () => {
@@ -199,6 +228,35 @@ describe('OrdemDeServicoPrismaRepository outbox integration', () => {
 
       expect(tx.ordemDeServico.update).toHaveBeenCalledTimes(1);
       expect(tx.outbox.createMany).not.toHaveBeenCalled();
+    });
+
+    it('runs naTransacao with the tx right after the outbox append', async () => {
+      const { repo, tx, calls } = setup();
+      const trabalho = jest.fn().mockImplementation(() => {
+        calls.push('naTransacao');
+        return Promise.resolve();
+      });
+
+      await repo.update(makeOs(), [event], trabalho);
+
+      expect(trabalho).toHaveBeenCalledWith(tx);
+      expect(calls.indexOf('outbox.createMany')).toBeLessThan(
+        calls.indexOf('naTransacao'),
+      );
+      expect(calls.indexOf('naTransacao')).toBeLessThan(
+        calls.indexOf('tx.commit'),
+      );
+    });
+
+    it('rejects when naTransacao fails on update', async () => {
+      const { repo, prisma } = setup();
+
+      await expect(
+        repo.update(makeOs(), [event], () =>
+          Promise.reject(new Error('saga down')),
+        ),
+      ).rejects.toThrow('saga down');
+      expect(prisma.ordemDeServico.findUniqueOrThrow).not.toHaveBeenCalled();
     });
 
     it('skips child inserts when the OS has no services or parts', async () => {

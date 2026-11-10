@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { IOrdemDeServicoRepository } from '../../domain/repositories/service-orders.repository.interface';
+import { IOrdemDeServicoRepository, TrabalhoNaTransacao } from '../../domain/repositories/service-orders.repository.interface';
 import { OrdemDeServico, StatusOS, OsItemServico, OsItemPeca } from '../../domain/entities/service-orders.entity';
 import { ServiceOrderMapper } from '../mappers/service-orders.mapper';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -55,7 +55,7 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
         return raws.map(ServiceOrderMapper.toDomain).sort(byStatusPriorityThenOldest);
     }
 
-    async create(os: OrdemDeServico, events: DomainEvent[] = []): Promise<OrdemDeServico> {
+    async create(os: OrdemDeServico, events: DomainEvent[] = [], naTransacao?: TrabalhoNaTransacao): Promise<OrdemDeServico> {
         const raw = await this.prisma.$transaction(async (tx) => {
             const created = await tx.ordemDeServico.create({
                 data: {
@@ -74,12 +74,13 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
             });
 
             await this.outboxWriter.append(tx, events);
+            if (naTransacao) await naTransacao(tx);
             return created;
         });
         return ServiceOrderMapper.toDomain(raw);
     }
 
-    async update(os: OrdemDeServico, events: DomainEvent[] = []): Promise<OrdemDeServico> {
+    async update(os: OrdemDeServico, events: DomainEvent[] = [], naTransacao?: TrabalhoNaTransacao): Promise<OrdemDeServico> {
         await this.prisma.$transaction(async (tx) => {
             await tx.ordemDeServico.update({
                 where: { id: os.id },
@@ -134,6 +135,7 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
             }
 
             await this.outboxWriter.append(tx, events);
+            if (naTransacao) await naTransacao(tx);
         });
 
         const updated = await this.prisma.ordemDeServico.findUniqueOrThrow({
