@@ -149,7 +149,7 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: |
-          kubectl create secret generic oficina-api-secret \
+          kubectl create secret generic oficina-os-service-secret \
             --namespace "$NAMESPACE" \
             --from-literal=DATABASE_URL="$DATABASE_URL" \
             --from-literal=JWT_SECRET="$JWT_SECRET" \
@@ -186,12 +186,12 @@ jobs:
 
       - name: Aguardar rollout
         if: env.HAS_AWS == 'true'
-        run: kubectl rollout status -n "$NAMESPACE" deployment/oficina-api --timeout=300s
+        run: kubectl rollout status -n "$NAMESPACE" deployment/oficina-os-service --timeout=300s
 
       - name: Estado final do ambiente
         if: env.HAS_AWS == 'true'
         run: |
-          kubectl get pods,svc,hpa -n "$NAMESPACE" -l app=oficina-api
+          kubectl get pods,svc,hpa -n "$NAMESPACE" -l app=oficina-os-service
 
       # O ARN do NLB é o que falta ao `api-gateway/` do oficina-infra-k8s para
       # criar o VPC Link e rotear /os/*. Publicar aqui evita ter que garimpar
@@ -199,7 +199,7 @@ jobs:
       - name: Publicar ARN do NLB para o API Gateway
         if: env.HAS_AWS == 'true'
         run: |
-          HOST=$(kubectl get svc oficina-api -n "$NAMESPACE" \
+          HOST=$(kubectl get svc oficina-os-service -n "$NAMESPACE" \
             -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 
           if [ -z "$HOST" ]; then

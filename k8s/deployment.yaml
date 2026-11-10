@@ -9,30 +9,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: oficina-api
+  name: oficina-os-service
   labels:
-    app: oficina-api
+    app: oficina-os-service
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: oficina-api
+      app: oficina-os-service
   template:
     metadata:
       labels:
-        app: oficina-api
+        app: oficina-os-service
     spec:
       containers:
-        - name: oficina-api
+        - name: oficina-os-service
           image: ${APP_IMAGE}
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
           envFrom:
             - configMapRef:
-                name: oficina-api-config
+                name: oficina-os-service-config
             - secretRef:
-                name: oficina-api-secret
+                name: oficina-os-service-secret
           env:
             # Separa homolog de prod no New Relic — sem isso os dois
             # ambientes aparecem misturados na mesma aplicação.
