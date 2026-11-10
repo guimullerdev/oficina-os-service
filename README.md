@@ -466,6 +466,65 @@ Cada passo vencido passa por `EXPIRADO` e termina `COMPENSADO`, a saga vira
 
 ---
 
+## Testes BDD (compensação da Saga)
+
+Os cenários de `features/` (Cucumber, em português) testam a saga de ponta a
+ponta contra um stack isolado, definido em `docker-compose.bdd.yml`: a API
+real, Postgres e LocalStack (SNS/SQS).
+
+### O que o cenário prova
+
+Em `features/saga-ordem-de-servico.feature`, a OS é levada até
+`AGUARDANDO_APROVACAO` e o orçamento é reprovado. O teste verifica que:
+
+- a OS fica `REPROVADA`;
+- o passo `APROVAR_ORCAMENTO` da saga fica `COMPENSADO`.
+
+O Billing é simulado: o step publica `orcamento.gerado` e, em seguida,
+`orcamento.reprovado` direto no tópico `oficina-billing-events` do LocalStack,
+com o `osId` no corpo. Nenhum serviço do Billing real participa do teste.
+
+### Como rodar localmente
+
+Com Docker ativo e `yarn install` feito:
+
+```bash
+docker compose -f docker-compose.bdd.yml up -d --build --wait
+set -a; . ./.env.bdd; set +a
+yarn test:bdd
+docker compose -f docker-compose.bdd.yml down -v
+```
+
+O cucumber não lê o `.env.bdd` sozinho: por isso o `set -a` exporta as
+variáveis antes do `yarn test:bdd`. O `down -v` apaga o volume do Postgres.
+
+Portas no host:
+
+| Serviço    | Porta no host | Variável para mudar            |
+|------------|---------------|--------------------------------|
+| API        | `3100`        | `BDD_APP_PORT`                 |
+| LocalStack | `4567`        | `BDD_LOCALSTACK_PORT`          |
+| Postgres   | `55432`       | `BDD_PG_PORT`                  |
+
+Os steps esperam o estado final por polling. Dois ajustes opcionais:
+
+- `BDD_POLL_TIMEOUT_MS` (padrão `90000`): tempo máximo de espera por cada
+  `Então`. O timeout do step é esse valor mais 15 s.
+- `BDD_POLL_INTERVAL_MS` (padrão `500`): intervalo entre as consultas.
+
+### CI
+
+O job `bdd` de `.github/workflows/ci-cd.yml` sobe o mesmo stack e roda
+`yarn test:bdd`. Ele roda em todo pull request, sem filtro de paths. Se falhar,
+imprime os logs do stack e, ao final, derruba o stack.
+
+As features ficam fora da cobertura: o Jest só lê `src/` (`rootDir` e
+`collectCoverageFrom`) e o Sonar analisa só `src`. O BDD valida o
+comportamento de ponta a ponta, mas não entra no threshold de cobertura nem
+nas métricas do Sonar.
+
+---
+
 ## Vídeo demonstrativo
 
 **Fase 3**: _(a publicar)_ — autenticação por CPF, geração e uso do JWT,
