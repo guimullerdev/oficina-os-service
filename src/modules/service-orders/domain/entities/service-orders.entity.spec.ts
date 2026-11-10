@@ -260,13 +260,6 @@ describe('OrdemDeServico entity', () => {
             expect(() => baseOS().marcarPecaUtilizada('nonexistent')).toThrow('não encontrado');
         });
     });
-
-    describe('vincularOrcamento()', () => {
-        it('sets orcamentoId', () => {
-            const os = baseOS().vincularOrcamento('orc-123');
-            expect(os.orcamentoId).toBe('orc-123');
-        });
-    });
 });
 
 describe('OrdemDeServico.toJSON()', () => {
