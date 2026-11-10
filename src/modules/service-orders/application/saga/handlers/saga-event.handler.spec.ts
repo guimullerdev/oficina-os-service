@@ -16,10 +16,10 @@ const encontrada = {
 } as unknown as ResultadoAplicacaoSaga;
 
 const makeOrchestrator = (result: ResultadoAplicacaoSaga = encontrada) => {
-  const aplicarEvento: jest.Mock<
+  const aplicarEvento = jest.fn<
     Promise<ResultadoAplicacaoSaga>,
     [string, { osId?: string }, unknown?]
-  > = jest.fn();
+  >();
   aplicarEvento.mockResolvedValue(result);
   return {
     aplicarEvento,
