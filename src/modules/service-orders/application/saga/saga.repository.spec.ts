@@ -1,10 +1,5 @@
-// O alias `src/` não é resolvido pelo Jest deste projeto; PrismaService só é token de DI.
-jest.mock('src/prisma/prisma.service', () => ({ PrismaService: class {} }), {
-    virtual: true,
-});
-
 import { Prisma, StatusPassoSaga, StatusSaga } from '@prisma/client';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import { SagaPrismaRepository } from './saga.repository';
 
 const makeCliente = () => ({
@@ -65,6 +60,20 @@ describe('SagaPrismaRepository', () => {
                 include: { passos: { orderBy: { ordem: 'asc' } } },
             });
             expect(result).toEqual({ id: 'saga-1', passos: [] });
+        });
+
+        it('repassa tentativas nos passos criados', async () => {
+            const comTentativas = { ...criacao, passos: [{ ...passo(1), tentativas: 0 }] };
+
+            await repo.criar(comTentativas);
+
+            expect(prisma.sagaInstancia.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        passos: { create: [expect.objectContaining({ tentativas: 0 })] },
+                    }),
+                }),
+            );
         });
 
         it('usa o tx quando informado', async () => {
