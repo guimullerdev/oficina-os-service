@@ -180,6 +180,39 @@ describe('OrdemDeServico entity', () => {
         });
     });
 
+    describe('compensarFalhaExecucao()', () => {
+        const emExecucao = () =>
+            baseOS().iniciarDiagnostico().concluirDiagnostico().aprovarOrcamento().iniciarExecucao();
+
+        it('transitions EM_EXECUCAO → APROVADA and appends one history entry', () => {
+            const os = emExecucao();
+            const compensada = os.compensarFalhaExecucao();
+
+            expect(compensada.status).toBe(StatusOS.APROVADA);
+            expect(compensada.historicoStatus).toHaveLength(os.historicoStatus.length + 1);
+            const ultima = compensada.historicoStatus[compensada.historicoStatus.length - 1];
+            expect(ultima.statusAnterior).toBe(StatusOS.EM_EXECUCAO);
+            expect(ultima.statusNovo).toBe(StatusOS.APROVADA);
+        });
+
+        it.each([
+            ['APROVADA', () => baseOS().iniciarDiagnostico().concluirDiagnostico().aprovarOrcamento()],
+            ['FINALIZADA', () => emExecucao().finalizarExecucao()],
+            ['RECEBIDA', () => baseOS()],
+        ])('throws InvalidTransitionError when %s', (_nome, montar) => {
+            expect(() => montar().compensarFalhaExecucao()).toThrow(InvalidTransitionError);
+        });
+
+        it('allows iniciarExecucao() again after the compensation', () => {
+            const retomada = emExecucao().compensarFalhaExecucao().iniciarExecucao();
+            expect(retomada.status).toBe(StatusOS.EM_EXECUCAO);
+        });
+
+        it('keeps aprovarOrcamento() throwing from EM_EXECUCAO', () => {
+            expect(() => emExecucao().aprovarOrcamento()).toThrow(InvalidTransitionError);
+        });
+    });
+
     describe('finalizarExecucao()', () => {
         it('transitions EM_EXECUCAO → FINALIZADA and sets dataFechamento', () => {
             const os = baseOS()

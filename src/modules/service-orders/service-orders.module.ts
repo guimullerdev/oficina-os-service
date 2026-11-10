@@ -10,10 +10,14 @@ import { OutboxWriter } from '../../shared/messaging/outbox.writer';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
 
-import { ORDEM_DE_SERVICO_REPOSITORY } from './domain/repositories/service-orders.repository.interface';
+import {
+    IOrdemDeServicoRepositoryTransacional,
+    ORDEM_DE_SERVICO_REPOSITORY,
+} from './domain/repositories/service-orders.repository.interface';
 import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/service-orders-prisma.repository';
 import { ServiceOrdersController } from './presentation/service-orders.controller';
 import { SagaOrchestrator } from './application/saga/saga-orchestrator.service';
+import { SagaCompensador } from './application/saga/saga-compensador';
 import { SagaPrismaRepository } from './application/saga/saga.repository';
 
 import { CreateOrdemDeServicoUseCase } from './application/use-cases/create-service-orders.usecase';
@@ -83,12 +87,18 @@ import { GetSagaUseCase } from './application/saga/get-saga.usecase';
         {
             // Registra os handlers da saga na criação (antes de o consumidor SQS iniciar).
             provide: 'SAGA_EVENT_HANDLERS',
-            useFactory: (registry: MessageHandlerRegistry, orchestrator: SagaOrchestrator) => {
-                const handlers = criarSagaEventHandlers(orchestrator);
+            useFactory: (
+                registry: MessageHandlerRegistry,
+                orchestrator: SagaOrchestrator,
+                osRepo: IOrdemDeServicoRepositoryTransacional,
+                metrics: OsStatusMetrics,
+            ) => {
+                const compensador = new SagaCompensador(osRepo, metrics);
+                const handlers = criarSagaEventHandlers(orchestrator, compensador.aoCompensar);
                 handlers.forEach((h) => registry.register(h));
                 return handlers;
             },
-            inject: [MessageHandlerRegistry, SagaOrchestrator],
+            inject: [MessageHandlerRegistry, SagaOrchestrator, ORDEM_DE_SERVICO_REPOSITORY, OsStatusMetrics],
         },
         {
             provide: ORDEM_DE_SERVICO_REPOSITORY,

@@ -274,3 +274,115 @@ describe('OrdemDeServicoPrismaRepository outbox integration', () => {
     });
   });
 });
+
+describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
+  function setupTx() {
+    const tx = {
+      ordemDeServico: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      historicoStatusOS: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const prisma = {
+      $transaction: jest.fn(),
+      ordemDeServico: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
+    };
+    const repo = new OrdemDeServicoPrismaRepository(
+      prisma as unknown as PrismaService,
+      new OutboxWriter(),
+    );
+    return { repo, prisma, tx };
+  }
+
+  const expectNoOwnTransaction = (prisma: ReturnType<typeof setupTx>['prisma']) => {
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.ordemDeServico.findUnique).not.toHaveBeenCalled();
+    expect(prisma.ordemDeServico.updateMany).not.toHaveBeenCalled();
+    expect(prisma.ordemDeServico.update).not.toHaveBeenCalled();
+    expect(prisma.ordemDeServico.create).not.toHaveBeenCalled();
+  };
+
+  describe('findByIdInTx()', () => {
+    it('reads through the given tx and maps to the domain', async () => {
+      const { repo, prisma, tx } = setupTx();
+      tx.ordemDeServico.findUnique.mockResolvedValue(rawOs);
+
+      const os = await repo.findByIdInTx('os-1', tx);
+
+      expect(os).toBeInstanceOf(OrdemDeServico);
+      expect(os?.id).toBe('os-1');
+      expect(os?.status).toBe(StatusOS.RECEBIDA);
+      expect(tx.ordemDeServico.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'os-1' } }),
+      );
+      expectNoOwnTransaction(prisma);
+    });
+
+    it('returns null when the OS does not exist', async () => {
+      const { repo, prisma, tx } = setupTx();
+      tx.ordemDeServico.findUnique.mockResolvedValue(null);
+
+      await expect(repo.findByIdInTx('x', tx)).resolves.toBeNull();
+      expectNoOwnTransaction(prisma);
+    });
+  });
+
+  describe('updateStatusInTx()', () => {
+    const emExecucao = () =>
+      makeOs()
+        .iniciarDiagnostico()
+        .concluirDiagnostico()
+        .aprovarOrcamento()
+        .iniciarExecucao();
+
+    it('updates only status/updatedAt guarded by the expected status and appends history', async () => {
+      const { repo, prisma, tx } = setupTx();
+      tx.ordemDeServico.updateMany.mockResolvedValue({ count: 1 });
+      const compensada = emExecucao().compensarFalhaExecucao();
+
+      const ok = await repo.updateStatusInTx(
+        compensada,
+        StatusOS.EM_EXECUCAO,
+        tx,
+      );
+
+      expect(ok).toBe(true);
+      expect(tx.ordemDeServico.updateMany).toHaveBeenCalledWith({
+        where: { id: 'os-1', status: StatusOS.EM_EXECUCAO },
+        data: { status: StatusOS.APROVADA, updatedAt: compensada.updatedAt },
+      });
+      expect(tx.historicoStatusOS.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            osId: 'os-1',
+            statusAnterior: StatusOS.EM_EXECUCAO,
+            statusNovo: StatusOS.APROVADA,
+          }),
+        ]),
+        skipDuplicates: true,
+      });
+      expectNoOwnTransaction(prisma);
+    });
+
+    it('returns false without touching the history when the status changed meanwhile', async () => {
+      const { repo, prisma, tx } = setupTx();
+      tx.ordemDeServico.updateMany.mockResolvedValue({ count: 0 });
+
+      const ok = await repo.updateStatusInTx(
+        emExecucao().compensarFalhaExecucao(),
+        StatusOS.EM_EXECUCAO,
+        tx,
+      );
+
+      expect(ok).toBe(false);
+      expect(tx.historicoStatusOS.createMany).not.toHaveBeenCalled();
+      expectNoOwnTransaction(prisma);
+    });
+  });
+});

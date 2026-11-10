@@ -250,6 +250,16 @@ export class OrdemDeServico {
         return this.transicionar(StatusOS.EM_EXECUCAO);
     }
 
+    /** Compensação da saga (execucao.falhou): EM_EXECUCAO → APROVADA. Uso exclusivo do SagaCompensador. Não reverte itens. */
+    compensarFalhaExecucao(): OrdemDeServico {
+        if (this.props.status !== StatusOS.EM_EXECUCAO) {
+            throw new InvalidTransitionError(
+                `Compensação inválida: ${this.props.status} → APROVADA. Status esperado: EM_EXECUCAO`,
+            );
+        }
+        return this.transicionar(StatusOS.APROVADA);
+    }
+
     finalizarExecucao(): OrdemDeServico {
         if (this.props.status !== StatusOS.EM_EXECUCAO) {
             throw new InvalidTransitionError(

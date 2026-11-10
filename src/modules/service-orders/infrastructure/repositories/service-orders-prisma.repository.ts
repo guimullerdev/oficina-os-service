@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { IOrdemDeServicoRepository, TrabalhoNaTransacao } from '../../domain/repositories/service-orders.repository.interface';
+import {
+    IOrdemDeServicoRepository,
+    IOrdemDeServicoRepositoryTransacional,
+    TrabalhoNaTransacao,
+} from '../../domain/repositories/service-orders.repository.interface';
 import { OrdemDeServico, StatusOS, OsItemServico, OsItemPeca } from '../../domain/entities/service-orders.entity';
 import { ServiceOrderMapper } from '../mappers/service-orders.mapper';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -29,7 +33,7 @@ const includeItems = {
 } as const;
 
 @Injectable()
-export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository {
+export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository, IOrdemDeServicoRepositoryTransacional {
     constructor(
         private prisma: PrismaService,
         private outboxWriter: OutboxWriter,
@@ -143,6 +147,27 @@ export class OrdemDeServicoPrismaRepository implements IOrdemDeServicoRepository
             include: includeItems,
         });
         return ServiceOrderMapper.toDomain(updated);
+    }
+
+    async findByIdInTx(id: string, tx: unknown): Promise<OrdemDeServico | null> {
+        const raw = await (tx as Prisma.TransactionClient).ordemDeServico.findUnique({ where: { id }, include: includeItems });
+        return raw ? ServiceOrderMapper.toDomain(raw) : null;
+    }
+
+    async updateStatusInTx(os: OrdemDeServico, statusEsperado: StatusOS, tx: unknown): Promise<boolean> {
+        const client = tx as Prisma.TransactionClient;
+        // Guarda otimista pelo status atual: se outro fluxo já moveu a OS, não grava nada.
+        const { count } = await client.ordemDeServico.updateMany({
+            where: { id: os.id, status: statusEsperado as any },
+            data: { status: os.status as any, updatedAt: os.updatedAt },
+        });
+        if (count === 0) return false;
+
+        await client.historicoStatusOS.createMany({
+            data: ServiceOrderMapper.historicoToPrisma(os),
+            skipDuplicates: true,
+        });
+        return true;
     }
 
     async generateNumero(): Promise<string> {

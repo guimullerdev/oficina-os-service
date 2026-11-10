@@ -12,4 +12,15 @@ export interface IOrdemDeServicoRepository {
     generateNumero(): Promise<string>;
 }
 
+/**
+ * Porta usada pela compensação da saga: opera sempre dentro da transação do
+ * processador idempotente (`tx`), sem abrir transação própria nem reescrever
+ * itens da OS.
+ */
+export interface IOrdemDeServicoRepositoryTransacional {
+    findByIdInTx(id: string, tx: unknown): Promise<OrdemDeServico | null>;
+    /** grava só status/updatedAt/histórico se status atual no banco === statusEsperado; false se não */
+    updateStatusInTx(os: OrdemDeServico, statusEsperado: StatusOS, tx: unknown): Promise<boolean>;
+}
+
 export const ORDEM_DE_SERVICO_REPOSITORY = Symbol('IOrdemDeServicoRepository');
