@@ -1,7 +1,7 @@
 # Oficina Mecânica API — Tech Challenge Fase 3
 
-API REST de gestão de uma oficina mecânica: ordens de serviço (OS), clientes,
-veículos, serviços, peças/estoque e orçamentos. Evolução das fases anteriores,
+API REST de gestão de uma oficina mecânica: ordens de serviço (OS), clientes e
+veículos. Evolução das fases anteriores,
 agora rodando em **infraestrutura real na AWS**, com autenticação de cliente
 por CPF via função serverless, deploy automatizado em Kubernetes e
 observabilidade ponta a ponta.
@@ -77,6 +77,19 @@ curl -s "$BASE/os/me" -H "authorization: Bearer $TOKEN"
   Kubernetes com HPA, provisionamento via Terraform e pipeline de CI/CD que
   builda, testa e faz o deploy de ponta a ponta.
 
+### Escopo da Fase 2
+
+Esta fase cobre só o núcleo de OS: `service-orders`, `customers`, `vehicles` e
+`auth`. `servicoId` e `pecaId` são **referências fracas**: não são validados
+contra um catálogo, e o preço vem informado na própria requisição
+(`precoUnitario`).
+
+**Gap funcional deliberado:** a OS não gera orçamento nem controla estoque
+nesta fase. Concluir o diagnóstico só muda o status para `AGUARDANDO_APROVACAO`,
+e a aprovação ou reprovação chega pelo webhook de notificação. Orçamento e
+estoque passam a viver nos serviços **Billing** e **Execução**, que ainda não
+existem.
+
 ---
 
 ## Arquitetura
@@ -91,12 +104,7 @@ src/
 │   ├── auth/            # autenticação JWT + guards (JWT, Roles, Webhook)
 │   ├── customers/       # clientes
 │   ├── vehicles/        # veículos
-│   ├── services/        # catálogo de serviços
-│   ├── parts/           # peças
-│   ├── estoque/         # controle de estoque
-│   ├── orcamentos/      # orçamentos
-│   ├── service-orders/  # ciclo de vida da OS (+ webhook de notificação externa)
-│   └── relatorios/      # métricas (tempo médio de execução)
+│   └── service-orders/  # ciclo de vida da OS (+ webhook de notificação externa)
 ├── common/health/       # GET /health (liveness/readiness)
 └── prisma/              # PrismaService
 ```
@@ -124,7 +132,7 @@ Cluster Kubernetes (kind)
 ```
 
 - Atores externos acessam a API pelo `Service`; o cliente pode consultar o
-  status da OS publicamente e um sistema externo aprova/reprova orçamento pelo
+  status da OS publicamente e um sistema externo aprova/reprova a OS pelo
   webhook (`POST /os/webhook/notificacao`, autenticado por `WEBHOOK_SECRET`).
 
 ![img_1.png](infra.png)
@@ -256,8 +264,9 @@ Destaques da Fase 2:
 - `GET /os` — listagem ordenada por prioridade de status (Em Execução >
   Aguardando Aprovação > Diagnóstico > Recebida), mais antigas primeiro, com
   exclusão lógica das arquivadas.
-- `POST /os/webhook/notificacao` — webhook externo que aprova/reprova o
-  orçamento de uma OS (autenticado por `WEBHOOK_SECRET`).
+- `POST /os/webhook/notificacao` — webhook externo que aprova/reprova uma OS em
+  `AGUARDANDO_APROVACAO` e devolve o `statusAtual` pós-ação (autenticado por
+  `WEBHOOK_SECRET`).
 
 ### Autenticação: dois fluxos, dois atores
 
@@ -314,8 +323,8 @@ dono — quem tivesse o identificador lia a OS de qualquer pessoa.
 > confirmaria a existência da OS para quem não deveria saber.
 
 **Do staff (token com role interna).** Todo o resto — CRUD de clientes,
-veículos, serviços, peças, estoque, orçamentos, e o ciclo de vida da OS
-(diagnóstico → orçamento → execução → entrega). Algumas operações exigem
+veículos, e o ciclo de vida da OS (diagnóstico → aguardando aprovação →
+execução → entrega). Algumas operações exigem
 perfil específico, por exemplo:
 
 | Rota | Perfis |
@@ -342,51 +351,25 @@ perfil específico, por exemplo:
 | `GET`  | `/veiculos/:id` | Buscar veículo por ID |
 | `PUT`  | `/veiculos/:id` | Atualizar veículo |
 | `DELETE` | `/veiculos/:id` | Remover veículo |
-| `POST` | `/servicos` | Criar serviço |
-| `GET`  | `/servicos` | Listar serviços |
-| `GET`  | `/servicos/:id` | Buscar serviço por ID |
-| `PUT`  | `/servicos/:id` | Atualizar serviço |
-| `PATCH` | `/servicos/:id/desativar` | Desativar serviço |
-| `PATCH` | `/servicos/:id/reativar` | Reativar serviço |
-| `POST` | `/pecas` | Criar peça |
-| `GET`  | `/pecas` | Listar peças |
-| `GET`  | `/pecas/:id` | Buscar peça por ID |
-| `PUT`  | `/pecas/:id` | Atualizar peça |
-| `PATCH` | `/pecas/:id/desativar` | Desativar peça |
-| `PATCH` | `/pecas/:id/reativar` | Reativar peça |
-| `POST` | `/estoque/entrada` | Registrar entrada de estoque |
-| `POST` | `/estoque/baixa` | Registrar baixa de estoque |
-| `POST` | `/estoque/reservar` | Reservar estoque |
-| `POST` | `/estoque/liberar-reserva` | Liberar reserva de estoque |
-| `POST` | `/estoque/solicitar-reposicao` | Solicitar reposição |
-| `GET`  | `/estoque/movimentacoes` | Listar movimentações |
-| `POST` | `/os` | Abrir ordem de serviço |
+| `POST` | `/os` | Abrir ordem de serviço (itens inline exigem `precoUnitario`) |
 | `GET`  | `/os` | Listar OS (priorizada, exclui arquivadas) |
 | `GET`  | `/os/consulta` | Consulta pública da OS |
-| `GET`  | `/os/metricas/tempo-medio` | Tempo médio de execução |
 | `GET`  | `/os/:id` | Buscar OS por ID |
 | `GET`  | `/os/:id/status` | Consultar status da OS |
 | `GET`  | `/os/:id/acompanhamento` | Acompanhamento da OS |
-| `GET`  | `/os/:id/orcamento` | Orçamento da OS |
-| `POST` | `/os/webhook/notificacao` | Webhook externo — aprova/reprova orçamento |
-| `POST` | `/os/:id/servicos` | Adicionar serviço à OS |
+| `POST` | `/os/webhook/notificacao` | Webhook externo — aprova/reprova a OS e devolve `statusAtual` |
+| `POST` | `/os/:id/servicos` | Adicionar serviço à OS (`{ servicoId, precoUnitario }`) |
 | `DELETE` | `/os/:id/servicos/:itemId` | Remover serviço da OS |
 | `PATCH` | `/os/:id/servicos/:itemId/realizar` | Registrar execução de serviço |
-| `POST` | `/os/:id/pecas` | Adicionar peça à OS |
+| `POST` | `/os/:id/pecas` | Adicionar peça à OS (`{ pecaId, quantidade, precoUnitario }`) |
 | `DELETE` | `/os/:id/pecas/:itemId` | Remover peça da OS |
 | `PATCH` | `/os/:id/pecas/:itemId/utilizar` | Marcar peça como utilizada |
 | `PATCH` | `/os/:id/iniciar-diagnostico` | Iniciar diagnóstico |
-| `PATCH` | `/os/:id/concluir-diagnostico` | Concluir diagnóstico (gera orçamento) |
+| `PATCH` | `/os/:id/concluir-diagnostico` | Concluir diagnóstico (status → `AGUARDANDO_APROVACAO`) |
 | `PATCH` | `/os/:id/iniciar-execucao` | Iniciar execução |
 | `PATCH` | `/os/:id/finalizar-execucao` | Finalizar execução |
 | `PATCH` | `/os/:id/liberar-veiculo` | Liberar veículo |
 | `PATCH` | `/os/:id/entregar` | Entregar veículo |
-| `GET`  | `/orcamentos/by-os/:osId` | Buscar orçamento pela OS |
-| `GET`  | `/orcamentos/:id` | Buscar orçamento por ID |
-| `POST` | `/orcamentos/:id/enviar` | Enviar orçamento ao cliente |
-| `PATCH` | `/orcamentos/:id/aprovar` | Aprovar orçamento |
-| `PATCH` | `/orcamentos/:id/reprovar` | Reprovar orçamento |
-| `GET`  | `/relatorios/tempo-medio-servicos` | Tempo médio por serviço |
 
 ---
 

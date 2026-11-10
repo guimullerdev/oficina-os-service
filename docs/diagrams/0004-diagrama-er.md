@@ -5,6 +5,12 @@
 > "justificativa formal da escolha do banco + diagrama ER" nesse repo,
 > já que é o dono do recurso de banco gerenciado (ver RFC 0002).
 
+> **Escopo da Fase 2:** o modelo cobre só `clientes`, `veiculos`, `ordens_de_servico`
+> (com itens) e `users`. Tabelas de catálogo (serviços, peças), estoque e
+> orçamento saem deste diagrama e passam a viver nos serviços Billing/Execução.
+> `os_itens_servico.servico_id` e `os_itens_peca.peca_id` são **referências
+> fracas**: guardam o UUID informado, sem FK nem validação contra catálogo.
+
 ```mermaid
 erDiagram
     CLIENTE ||--o{ VEICULO : possui
@@ -12,12 +18,7 @@ erDiagram
     VEICULO ||--o{ ORDEM_DE_SERVICO : "é levado em"
     ORDEM_DE_SERVICO ||--o{ HISTORICO_STATUS_OS : registra
     ORDEM_DE_SERVICO ||--o{ OS_ITEM_SERVICO : contem
-    SERVICO ||--o{ OS_ITEM_SERVICO : "é usado em"
     ORDEM_DE_SERVICO ||--o{ OS_ITEM_PECA : contem
-    PECA ||--o{ OS_ITEM_PECA : "é usada em"
-    ORDEM_DE_SERVICO ||--|| ORCAMENTO : gera
-    ORDEM_DE_SERVICO ||--o{ MOVIMENTACAO_ESTOQUE : origina
-    PECA ||--o{ MOVIMENTACAO_ESTOQUE : sofre
 
     CLIENTE {
         uuid id PK
@@ -46,41 +47,6 @@ erDiagram
         datetime updated_at
     }
 
-    SERVICO {
-        uuid id PK
-        string nome
-        string descricao
-        decimal preco_base
-        int tempo_estimado
-        boolean ativo
-        datetime created_at
-        datetime updated_at
-    }
-
-    PECA {
-        uuid id PK
-        string nome
-        string codigo UK
-        string descricao
-        decimal preco_unitario
-        int qtd_total
-        int qtd_disponivel
-        int qtd_reservada
-        boolean ativo
-        datetime created_at
-        datetime updated_at
-    }
-
-    MOVIMENTACAO_ESTOQUE {
-        uuid id PK
-        uuid peca_id FK
-        enum tipo "ENTRADA | BAIXA | RESERVA | LIBERACAO_RESERVA"
-        int quantidade
-        uuid os_id FK "opcional"
-        string observacao
-        datetime created_at
-    }
-
     ORDEM_DE_SERVICO {
         uuid id PK
         string numero UK
@@ -98,7 +64,7 @@ erDiagram
     OS_ITEM_SERVICO {
         uuid id PK
         uuid os_id FK
-        uuid servico_id FK
+        uuid servico_id "referência fraca, sem FK"
         decimal preco_unitario
         datetime inicio_exec
         datetime fim_exec
@@ -108,24 +74,11 @@ erDiagram
     OS_ITEM_PECA {
         uuid id PK
         uuid os_id FK
-        uuid peca_id FK
+        uuid peca_id "referência fraca, sem FK"
         int quantidade
         decimal preco_unitario
         boolean utilizada
         datetime created_at
-    }
-
-    ORCAMENTO {
-        uuid id PK
-        uuid os_id FK "unique — 1:1 com OS"
-        enum status "GERADO | ENVIADO | APROVADO | REPROVADO"
-        decimal valor_total
-        datetime data_geracao
-        datetime data_envio
-        datetime data_resposta
-        string observacoes
-        datetime created_at
-        datetime updated_at
     }
 
     HISTORICO_STATUS_OS {
@@ -155,30 +108,22 @@ erDiagram
   `ordens_de_servico`**: uma OS sempre referencia exatamente um cliente e
   um veículo (validado no `CreateOrdemDeServicoUseCase`: o veículo
   informado precisa pertencer ao cliente informado).
-- **`ordens_de_servico` N:M `servicos`** via `os_itens_servico`: tabela
-  associativa que guarda o preço praticado no momento da adição
-  (`preco_unitario` congela o valor, independente de mudanças futuras em
-  `servicos.preco_base`) e o intervalo de execução (`inicio_exec`/
-  `fim_exec`), usado pelo módulo `relatorios` para calcular tempo médio por
-  status.
-- **`ordens_de_servico` N:M `pecas`** via `os_itens_peca`: mesma lógica de
-  preço congelado, mais a flag `utilizada` (peça reservada vs.
-  efetivamente consumida na OS).
-- **`ordens_de_servico` 1:1 `orcamentos`**: `orcamentos.os_id` é `@unique`
-  — cada OS gera no máximo um orçamento ativo.
+- **`ordens_de_servico` 1:N `os_itens_servico`**: cada item guarda o
+  `servico_id` como referência fraca (sem FK, sem validação contra catálogo,
+  já que o catálogo não existe nesta fase). O preço vem informado na
+  requisição e é congelado em `preco_unitario`, e o intervalo de execução
+  (`inicio_exec`/`fim_exec`) fica no próprio item.
+- **`ordens_de_servico` 1:N `os_itens_peca`**: mesma lógica de referência
+  fraca (`peca_id` sem FK) e preço congelado, mais a flag `utilizada`
+  (peça reservada vs. efetivamente consumida na OS).
 - **`ordens_de_servico` 1:N `historico_status_os`**: cada transição de
   status vira uma linha, com `status_anterior` nulo apenas no registro de
   abertura. Guardar a trilha em tabela própria (em vez de só o status atual
   na OS) é o que permite responder "quanto tempo a OS passou em cada
   status" — pergunta que o status corrente sozinho não responde. Alimenta o
-  acompanhamento exposto ao cliente e o dashboard de tempo médio por status.
+  acompanhamento exposto ao cliente.
   Índice em `(os_id, data)` porque toda leitura é "a trilha desta OS, em
   ordem cronológica". `ON DELETE CASCADE`: a trilha não faz sentido sem a OS.
-
-- **`pecas` 1:N `movimentacoes_estoque`**: toda entrada/baixa/reserva/
-  liberação de estoque é rastreada; `os_id` é opcional porque
-  movimentações do tipo `ENTRADA` (reposição de estoque) não estão
-  associadas a nenhuma OS.
 - **`users` isolada**: tabela de autenticação do staff (`ADMIN`/
   `ATENDENTE`/`MECANICO`), sem FK para o restante do modelo — é
   intencionalmente desacoplada do domínio de negócio (ver RFC 0003: `User`
@@ -191,7 +136,6 @@ erDiagram
 Ver RFC 0002 (`docs/rfc/0002-banco-de-dados-gerenciado.md`) para a análise
 completa de alternativas. Resumo: o modelo acima já é 100% relacional com
 FKs, enums e `@unique` constraints usados ativamente pelas regras de
-negócio (ex.: `veiculos.placa` único, `orcamentos.os_id` único para
-garantir 1:1) — trocar de motor exigiria reescrever schema e migrations
-sem nenhum ganho para o escopo do projeto. RDS PostgreSQL mantém o mesmo
-motor usado via Prisma desde a Fase 2.
+negócio (ex.: `veiculos.placa` único, `clientes.documento` único) — trocar de
+motor exigiria reescrever schema e migrations sem nenhum ganho para o escopo
+do projeto. RDS PostgreSQL mantém o mesmo motor usado via Prisma desde a Fase 2.
