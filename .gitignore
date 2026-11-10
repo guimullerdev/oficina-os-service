@@ -65,8 +65,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 crash.log
 crash.*.log
 *.tfvars
-# kubeconfig gerado pelo provider kind ao rodar terraform apply localmente
-infra/*-cluster-config
+# infra-local-kind/: state e kubeconfig gerados pelo provider kind ao rodar terraform apply localmente
+infra-local-kind/
 *.tfvars.json
 override.tf
 override.tf.json
@@ -78,3 +78,6 @@ newrelic_agent.log
 
 # planos locais (não versionar)
 docs/plano-fase*.md
+
+# Claude Code worktrees
+.claude/worktrees/
