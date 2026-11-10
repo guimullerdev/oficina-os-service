@@ -3,6 +3,8 @@
  */
 export type IncomingMessage = {
   messageId: string;
+  /** Identificador do evento (MessageAttribute do publisher); chave de idempotência. */
+  eventId?: string;
   evento: string;
   payload: unknown;
   correlationId?: string;

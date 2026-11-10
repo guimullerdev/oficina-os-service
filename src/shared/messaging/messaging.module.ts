@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SNSClient } from '@aws-sdk/client-sns';
 
+import { IdempotentProcessor } from './idempotency/idempotent-processor';
 import { OutboxPublisher } from './outbox.publisher';
 
 @Module({
@@ -14,6 +15,7 @@ import { OutboxPublisher } from './outbox.publisher';
       inject: [ConfigService],
     },
     OutboxPublisher,
+    IdempotentProcessor,
   ],
 })
 export class MessagingModule {}
