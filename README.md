@@ -405,6 +405,20 @@ atributos `evento` (usado pela filter policy), `eventId` (id da linha),
   réplicas simultâneas pulam as linhas já bloqueadas, sem publicar o mesmo
   evento em paralelo.
 
+### Consumo de eventos (SQS)
+
+O `SqsConsumerService` (`src/shared/messaging/sqs/`) roda no próprio processo
+HTTP, ligado por `SQS_CONSUMER_ENABLED=true` e `SQS_QUEUE_URL`. Faz long poll
+(`SQS_WAIT_TIME_SECONDS`, `SQS_VISIBILITY_TIMEOUT_SECONDS`, `SQS_MAX_MESSAGES`)
+e despacha cada mensagem ao handler do `evento` via `IdempotentProcessor`.
+
+- **Duas réplicas, mesma fila Standard:** uma mensagem pode ser entregue mais
+  de uma vez, o que é aceitável porque a idempotência por `eventId` descarta
+  as duplicatas.
+- **Mensagem envenenada:** JSON inválido, `evento` ausente ou desconhecido e
+  erro do handler não removem a mensagem da fila; após 3 recebimentos a
+  `redrive_policy` a move para a DLQ. Só sucesso (ou duplicata) apaga a mensagem.
+
 ---
 
 ## Vídeo demonstrativo
