@@ -43,6 +43,41 @@ jobs:
       # package.json); a pipeline falha se regredir.
       - run: yarn test:cov
 
+  # --- BDD: saga ponta a ponta contra o stack docker-compose.bdd.yml --------
+  # Sem filtro de paths: roda em todo PR e push, em paralelo ao build-and-test.
+  # Só valores de teste do .env.bdd; sem secrets.
+  bdd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - run: yarn install --frozen-lockfile
+
+      - name: Sobe o stack BDD
+        run: docker compose -f docker-compose.bdd.yml up -d --build --wait
+
+      # O cucumber não lê o .env.bdd sozinho: exporta as variáveis no step.
+      - name: Roda os cenários BDD
+        run: |
+          set -a
+          . ./.env.bdd
+          set +a
+          yarn test:bdd
+
+      - name: Logs do stack (falha)
+        if: failure()
+        run: docker compose -f docker-compose.bdd.yml logs --no-color
+
+      - name: Derruba o stack
+        if: always()
+        run: docker compose -f docker-compose.bdd.yml down -v
+
   # --- Terraform: formatação, init sem backend e validação ------------------
   # Só checagens estáticas: sem backend S3, sem credenciais AWS, sem secrets.
   terraform-check:
