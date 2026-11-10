@@ -14,7 +14,7 @@ kind: Job
 metadata:
   name: ${MIGRATION_JOB_NAME}
   labels:
-    app: oficina-api
+    app: oficina-os-service
     component: migration
 spec:
   # Uma migration que falha normalmente falha de novo (schema conflitante,
@@ -27,7 +27,7 @@ spec:
   template:
     metadata:
       labels:
-        app: oficina-api
+        app: oficina-os-service
         component: migration
     spec:
       restartPolicy: Never
@@ -37,7 +37,7 @@ spec:
           command: ["npx", "prisma", "migrate", "deploy"]
           envFrom:
             - secretRef:
-                name: oficina-api-secret
+                name: oficina-os-service-secret
           resources:
             requests:
               cpu: 100m

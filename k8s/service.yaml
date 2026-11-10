@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: oficina-api
+  name: oficina-os-service
   labels:
-    app: oficina-api
+    app: oficina-os-service
   annotations:
     # NLB, não o Classic Load Balancer que o EKS cria por padrão para
     # `type: LoadBalancer`: o VPC Link do API Gateway REST (v1) só aceita
@@ -25,7 +25,7 @@ spec:
   # atende — com 2 réplicas em 5 subnets, metade dos health checks falharia.
   externalTrafficPolicy: Cluster
   selector:
-    app: oficina-api
+    app: oficina-os-service
   ports:
     - port: 80
       targetPort: 3000
