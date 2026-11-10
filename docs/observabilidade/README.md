@@ -44,10 +44,6 @@ OS, ele calcula quanto tempo ela passou no status anterior
 histórico) e emite um log estruturado com `statusAnterior`, `statusNovo` e
 `duracaoSegundos`.
 
-Atenção: o módulo `relatorios` calcula tempo médio **por serviço**, que é
-uma métrica diferente da que o PDF pede (**por status**). Reaproveitá-lo
-aqui responderia à pergunta errada.
-
 ## Eventos estáveis
 
 Os identificadores de evento são constantes exportadas e cobertas por teste:
