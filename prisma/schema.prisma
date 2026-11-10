@@ -29,6 +29,23 @@ enum TipoDocumento {
   CNPJ
 }
 
+enum StatusSaga {
+  EM_ANDAMENTO
+  CONCLUIDA
+  COMPENSADA
+  PENDENTE
+  FALHOU
+}
+
+enum StatusPassoSaga {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDO
+  FALHOU
+  COMPENSADO
+  EXPIRADO
+}
+
 // ---------------------------------------------------------------------------
 // Cadastros
 // ---------------------------------------------------------------------------
@@ -92,6 +109,7 @@ model OrdemDeServico {
   osItensServico  OsItemServico[]
   osItensPeca     OsItemPeca[]
   historicoStatus HistoricoStatusOS[]
+  sagas           SagaInstancia[]
 
   @@map("ordens_de_servico")
 }
@@ -190,4 +208,46 @@ model MensagemProcessada {
   processedAt DateTime @default(now()) @map("processed_at")
 
   @@map("mensagens_processadas")
+}
+
+// ---------------------------------------------------------------------------
+// Saga (orquestração do fluxo da OS)
+// ---------------------------------------------------------------------------
+
+model SagaInstancia {
+  id            String     @id @default(uuid())
+  osId          String     @map("os_id")
+  tipo          String
+  status        StatusSaga
+  correlationId String     @map("correlation_id")
+  iniciadaEm    DateTime   @default(now()) @map("iniciada_em")
+  finalizadaEm  DateTime?  @map("finalizada_em")
+
+  os     OrdemDeServico @relation(fields: [osId], references: [id])
+  passos SagaPasso[]
+
+  @@unique([osId, tipo])
+  @@index([correlationId])
+  @@map("saga_instancias")
+}
+
+model SagaPasso {
+  id             String          @id @default(uuid())
+  sagaId         String          @map("saga_id")
+  ordem          Int
+  nome           String
+  status         StatusPassoSaga @default(PENDENTE)
+  comando        String?
+  eventoEsperado String?         @map("evento_esperado")
+  expiraEm       DateTime?       @map("expira_em")
+  tentativas     Int             @default(0)
+  erro           String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  saga SagaInstancia @relation(fields: [sagaId], references: [id], onDelete: Cascade)
+
+  @@unique([sagaId, ordem])
+  @@index([status, expiraEm])
+  @@map("saga_passos")
 }
