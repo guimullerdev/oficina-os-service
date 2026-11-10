@@ -8,3 +8,6 @@ data:
   NODE_ENV: "production"
   PORT: "3000"
   JWT_EXPIRES_IN: "8h"
+  AWS_REGION: "us-east-1"
+  OUTBOX_PUBLISH_INTERVAL_MS: "5000"
+  OUTBOX_BATCH_SIZE: "50"
