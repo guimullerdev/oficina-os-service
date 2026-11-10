@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -63,9 +64,8 @@ function makeSaga(
 
 describe('SagaOrchestrator', () => {
   const tx = { marcador: 'tx' } as unknown as Prisma.TransactionClient;
-  const txInterna = {
-    marcador: 'tx-interna',
-  } as unknown as Prisma.TransactionClient;
+  let queryRaw: jest.Mock;
+  let txInterna: Prisma.TransactionClient;
   const envOriginal = process.env;
 
   let prisma: { $transaction: jest.Mock };
@@ -73,6 +73,7 @@ describe('SagaOrchestrator', () => {
     criar: jest.Mock;
     buscarPorOs: jest.Mock;
     buscarPorCorrelationId: jest.Mock;
+    buscarPorId: jest.Mock;
     atualizarPassoSeStatus: jest.Mock;
     atualizarStatusSaga: jest.Mock;
   };
@@ -84,6 +85,11 @@ describe('SagaOrchestrator', () => {
     process.env = { ...envOriginal };
     delete process.env.SAGA_TIMEOUT_GERAR_ORCAMENTO_MS;
 
+    queryRaw = jest.fn().mockResolvedValue([]);
+    txInterna = {
+      marcador: 'tx-interna',
+      $queryRaw: queryRaw,
+    } as unknown as Prisma.TransactionClient;
     prisma = {
       $transaction: jest.fn((cb: (c: unknown) => Promise<unknown>) =>
         cb(txInterna),
@@ -93,6 +99,7 @@ describe('SagaOrchestrator', () => {
       criar: jest.fn((dados) => Promise.resolve({ id: 'saga-1', ...dados })),
       buscarPorOs: jest.fn().mockResolvedValue(null),
       buscarPorCorrelationId: jest.fn().mockResolvedValue(null),
+      buscarPorId: jest.fn().mockResolvedValue(null),
       atualizarPassoSeStatus: jest.fn().mockResolvedValue(1),
       atualizarStatusSaga: jest.fn().mockResolvedValue({}),
     };
@@ -259,6 +266,220 @@ describe('SagaOrchestrator', () => {
 
       expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
         false,
+      );
+    });
+  });
+
+  describe('expirarVencidos', () => {
+    const vencida = (extra: Partial<SagaComPassos> = {}): SagaComPassos => {
+      const saga = makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO'], extra);
+      saga.passos[2].expiraEm = new Date(AGORA.getTime() - 1000);
+      return saga;
+    };
+    const linha = (id = 'passo-3', sagaId = 'saga-1') => ({ id, sagaId });
+
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('não escreve nada quando não há passo vencido', async () => {
+      const resultado = await orchestrator.expirarVencidos();
+
+      expect(resultado).toEqual({ expirados: 0 });
+      expect(repo.buscarPorId).not.toHaveBeenCalled();
+      expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
+      expect(repo.atualizarStatusSaga).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
+    });
+
+    it('seleciona os vencidos com FOR UPDATE SKIP LOCKED, agora e limite', async () => {
+      const outroAgora = new Date('2025-02-02T00:00:00.000Z');
+
+      await orchestrator.expirarVencidos(outroAgora, 7);
+
+      const [strings, ...valores] = queryRaw.mock.calls[0] as unknown as [
+        string[],
+        ...unknown[],
+      ];
+      const sql = strings.join('?');
+      expect(sql).toContain('FROM saga_passos');
+      expect(sql).toContain("status = 'EM_ANDAMENTO'");
+      expect(sql).toContain('expira_em <=');
+      expect(sql).toContain('ORDER BY expira_em');
+      expect(sql).toContain('LIMIT');
+      expect(sql).toContain('FOR UPDATE SKIP LOCKED');
+      expect(valores).toEqual([outroAgora, 7]);
+    });
+
+    it('usa agora = new Date() e limite 50 por padrão', async () => {
+      await orchestrator.expirarVencidos();
+
+      const [, ...valores] = queryRaw.mock.calls[0] as unknown as unknown[];
+      expect(valores).toEqual([AGORA, 50]);
+    });
+
+    it('expira o passo vencido: COMPENSADO, saga COMPENSADA e evento no outbox', async () => {
+      queryRaw.mockResolvedValue([linha()]);
+      repo.buscarPorId.mockResolvedValue(vencida());
+
+      const resultado = await orchestrator.expirarVencidos(AGORA);
+
+      expect(resultado).toEqual({ expirados: 1 });
+      expect(repo.buscarPorId).toHaveBeenCalledWith('saga-1', txInterna);
+      expect(repo.atualizarPassoSeStatus).toHaveBeenCalledTimes(1);
+      expect(repo.atualizarPassoSeStatus).toHaveBeenCalledWith(
+        'passo-3',
+        'EM_ANDAMENTO',
+        {
+          status: 'COMPENSADO',
+          expiraEm: null,
+          erro: 'passo APROVAR_ORCAMENTO passou por EXPIRADO e foi COMPENSADO',
+        },
+        txInterna,
+      );
+      expect(repo.atualizarStatusSaga).toHaveBeenCalledWith(
+        'saga-1',
+        'COMPENSADA',
+        AGORA,
+        txInterna,
+      );
+      expect(outbox.append).toHaveBeenCalledTimes(1);
+      expect(outbox.append).toHaveBeenCalledWith(txInterna, [
+        {
+          evento: EVENTOS_SAGA.SAGA_PASSO_EXPIRADO,
+          aggregateType: AGGREGATE_TYPE_OS,
+          aggregateId: 'os-1',
+          payload: {
+            id: 'os-1',
+            sagaId: 'saga-1',
+            ordem: 3,
+            nome: 'APROVAR_ORCAMENTO',
+            causadoPor: null,
+          },
+          correlationId: 'corr-saga',
+          traceparent: undefined,
+        },
+      ]);
+    });
+
+    it('expira vários passos de sagas diferentes no mesmo lote', async () => {
+      queryRaw.mockResolvedValue([
+        linha('passo-3', 'saga-1'),
+        linha('passo-3b', 'saga-2'),
+      ]);
+      repo.buscarPorId
+        .mockResolvedValueOnce(vencida())
+        .mockResolvedValueOnce(vencida({ id: 'saga-2', osId: 'os-2' }));
+
+      const resultado = await orchestrator.expirarVencidos(AGORA);
+
+      expect(resultado).toEqual({ expirados: 2 });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(repo.atualizarStatusSaga).toHaveBeenCalledTimes(2);
+      expect(outbox.append).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignora a saga cuja decisão é IGNORAR (passo ainda não venceu)', async () => {
+      queryRaw.mockResolvedValue([linha()]);
+      repo.buscarPorId.mockResolvedValue(
+        makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+      );
+
+      const resultado = await orchestrator.expirarVencidos(AGORA);
+
+      expect(resultado).toEqual({ expirados: 0 });
+      expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
+      expect(repo.atualizarStatusSaga).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
+    });
+
+    it('pula com aviso quando a saga do passo não existe mais', async () => {
+      queryRaw.mockResolvedValue([linha()]);
+      repo.buscarPorId.mockResolvedValue(null);
+
+      const resultado = await orchestrator.expirarVencidos(AGORA);
+
+      expect(resultado).toEqual({ expirados: 0 });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('saga-1'));
+      expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
+    });
+
+    it('pula com aviso quando o passo já mudou (count 0) e segue o lote', async () => {
+      queryRaw.mockResolvedValue([
+        linha('passo-3', 'saga-1'),
+        linha('passo-3b', 'saga-2'),
+      ]);
+      repo.buscarPorId
+        .mockResolvedValueOnce(vencida())
+        .mockResolvedValueOnce(vencida({ id: 'saga-2', osId: 'os-2' }));
+      repo.atualizarPassoSeStatus
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1);
+
+      const resultado = await orchestrator.expirarVencidos(AGORA);
+
+      expect(resultado).toEqual({ expirados: 1 });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('saga-1'));
+      expect(repo.atualizarStatusSaga).toHaveBeenCalledTimes(1);
+      expect(repo.atualizarStatusSaga).toHaveBeenCalledWith(
+        'saga-2',
+        'COMPENSADA',
+        AGORA,
+        txInterna,
+      );
+      expect(outbox.append).toHaveBeenCalledTimes(1);
+    });
+
+    it('não abre transação aninhada: usa uma única $transaction e o tx dela', async () => {
+      queryRaw.mockResolvedValue([linha()]);
+      repo.buscarPorId.mockResolvedValue(vencida());
+
+      await orchestrator.expirarVencidos(AGORA);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(repo.buscarPorId).toHaveBeenCalledWith('saga-1', txInterna);
+      expect(repo.atualizarPassoSeStatus).toHaveBeenCalledWith(
+        'passo-3',
+        'EM_ANDAMENTO',
+        expect.anything(),
+        txInterna,
+      );
+      expect(repo.atualizarStatusSaga).toHaveBeenCalledWith(
+        'saga-1',
+        'COMPENSADA',
+        AGORA,
+        txInterna,
+      );
+      expect(outbox.append).toHaveBeenCalledWith(txInterna, expect.any(Array));
+    });
+
+    it('propaga erro de um passo para reverter o lote inteiro', async () => {
+      queryRaw.mockResolvedValue([
+        linha('passo-3', 'saga-1'),
+        linha('passo-3b', 'saga-2'),
+      ]);
+      repo.buscarPorId.mockResolvedValue(vencida());
+      outbox.append
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('outbox down'));
+
+      await expect(orchestrator.expirarVencidos(AGORA)).rejects.toThrow(
+        'outbox down',
+      );
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('propaga erro da consulta de vencidos', async () => {
+      queryRaw.mockRejectedValue(new Error('db down'));
+
+      await expect(orchestrator.expirarVencidos(AGORA)).rejects.toThrow(
+        'db down',
       );
     });
   });

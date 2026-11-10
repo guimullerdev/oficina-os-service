@@ -12,6 +12,7 @@ import {
 import type { NomePassoSaga } from './saga-definicao';
 import {
   aplicarEvento as decidirEvento,
+  expirar as decidirExpiracao,
   iniciar as decidirInicio,
 } from './saga-maquina';
 import type {
@@ -47,12 +48,27 @@ const STATUS_TERMINAIS: ReadonlySet<string> = new Set([
   'FALHOU',
 ]);
 
+/** Quantos passos vencidos uma execução de `expirarVencidos` processa. */
+export const LIMITE_EXPIRACAO_PADRAO = 50;
+// A transação segura os locks enquanto processa o lote; o default do Prisma
+// (5s) é curto para N passos x (leitura + 3 escritas).
+const TRANSACTION_TIMEOUT_MS = 30_000;
+
 export interface EnvelopeEventoSaga {
   eventId: string;
   correlationId?: string;
   osId?: string;
   payload?: unknown;
   traceparent?: string;
+}
+
+export interface ResultadoExpiracao {
+  expirados: number;
+}
+
+interface PassoVencido {
+  id: string;
+  sagaId: string;
 }
 
 export type ResultadoAplicacaoSaga =
@@ -135,6 +151,7 @@ type SagaRepositorio = Pick<
   | 'criar'
   | 'buscarPorOs'
   | 'buscarPorCorrelationId'
+  | 'buscarPorId'
   | 'atualizarPassoSeStatus'
   | 'atualizarStatusSaga'
 >;
@@ -230,6 +247,95 @@ export class SagaOrchestrator {
     const trabalho = (c: Prisma.TransactionClient) =>
       this.aplicarNaTransacao(evento, envelope, c);
     return tx ? trabalho(tx) : this.prisma.$transaction(trabalho);
+  }
+
+  /**
+   * Time-out de passos: expira os passos EM_ANDAMENTO cujo `expira_em` já
+   * passou (passo -> COMPENSADO, saga -> COMPENSADA, evento
+   * `saga.passo.expirado` no outbox). Não altera a OS. Processa no máximo
+   * `limite` passos por chamada, todos em uma única transação.
+   *
+   * Seguro com várias réplicas: `FOR UPDATE SKIP LOCKED` faz cada passo
+   * vencido ser pego por uma só réplica; quem chega depois pula as linhas
+   * travadas. A escrita ainda é condicional (`atualizarPassoSeStatus`), então
+   * um evento da saga que concluiu o passo no meio do caminho vence o
+   * time-out (count 0 -> passo pulado com aviso).
+   *
+   * Erro em qualquer passo propaga e reverte o lote inteiro (nada fica pela
+   * metade); o próximo tick tenta de novo. Público para ser testado sem timer.
+   */
+  expirarVencidos(
+    agora: Date = new Date(),
+    limite: number = LIMITE_EXPIRACAO_PADRAO,
+  ): Promise<ResultadoExpiracao> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const vencidos = await tx.$queryRaw<PassoVencido[]>`
+          SELECT id, saga_id AS "sagaId"
+          FROM saga_passos
+          WHERE status = 'EM_ANDAMENTO' AND expira_em <= ${agora}
+          ORDER BY expira_em
+          LIMIT ${limite}
+          FOR UPDATE SKIP LOCKED`;
+
+        let expirados = 0;
+        for (const vencido of vencidos) {
+          if (await this.expirarPasso(vencido, agora, tx)) expirados++;
+        }
+        return { expirados };
+      },
+      { timeout: TRANSACTION_TIMEOUT_MS },
+    );
+  }
+
+  private async expirarPasso(
+    vencido: PassoVencido,
+    agora: Date,
+    tx: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const saga = await this.repo.buscarPorId(vencido.sagaId, tx);
+    if (!saga) {
+      this.logger.warn(
+        `saga ${vencido.sagaId} do passo vencido ${vencido.id} não encontrada`,
+      );
+      return false;
+    }
+
+    const decisao = decidirExpiracao(paraSnapshot(saga), agora);
+    if (decisao.tipo === 'IGNORAR') return false;
+
+    const [alterado] = decisao.passosAlterados;
+    const count = await this.repo.atualizarPassoSeStatus(
+      vencido.id,
+      'EM_ANDAMENTO',
+      {
+        status: alterado.status,
+        expiraEm: alterado.expiraEm,
+        erro: decisao.motivo,
+      },
+      tx,
+    );
+    if (count === 0) {
+      this.logger.warn(
+        `saga ${saga.id}: passo ${vencido.id} mudou antes de expirar`,
+      );
+      return false;
+    }
+
+    await this.repo.atualizarStatusSaga(
+      saga.id,
+      decisao.novoStatusSaga,
+      agora,
+      tx,
+    );
+    await this.outbox.append(
+      tx,
+      paraEventos(saga, decisao.comandos, { eventId: null }),
+    );
+    this.logger.log(
+      `saga ${saga.id}: passo ${alterado.nome} expirado e compensado`,
+    );
+    return true;
   }
 
   private async carregar(
