@@ -100,9 +100,9 @@ function makeUseCase(
       repo as any,
       veiculoRepo as any,
       clienteRepo as any,
-      addServico as any,
-      addPeca as any,
-      saga as any,
+      addServico,
+      addPeca,
+      saga,
     ),
   };
 }

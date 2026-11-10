@@ -6,11 +6,6 @@ import { UpdateClienteUseCase } from '../application/use-cases/update-customers.
 import { DeactivateClienteUseCase } from '../application/use-cases/delete-customers.usecase';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
-const uc = (val: any = {}) => ({
-  execute: jest.fn().mockResolvedValue(val),
-  executeAll: jest.fn().mockResolvedValue([]),
-});
-
 describe('CustomersController', () => {
   let controller: CustomersController;
   let createUC: { execute: jest.Mock };
