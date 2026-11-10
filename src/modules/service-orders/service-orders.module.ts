@@ -1,5 +1,6 @@
 import { OsStatusMetrics } from './application/os-status-metrics.service';
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -18,6 +19,7 @@ import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/se
 import { ServiceOrdersController } from './presentation/service-orders.controller';
 import { SagaOrchestrator } from './application/saga/saga-orchestrator.service';
 import { SagaCompensador } from './application/saga/saga-compensador';
+import { SagaTimeoutScheduler } from './application/saga/saga-timeout.scheduler';
 import { SagaPrismaRepository } from './application/saga/saga.repository';
 
 import { CreateOrdemDeServicoUseCase } from './application/use-cases/create-service-orders.usecase';
@@ -83,7 +85,13 @@ import { GetSagaUseCase } from './application/saga/get-saga.usecase';
         ConsultaPublicaOsUseCase,
         ProcessarWebhookNotificacaoUseCase,
         GetSagaUseCase,
-        SagaPrismaRepository,
+        {
+            // Expira passos de saga vencidos (SAGA_TIMEOUT_ENABLED); seguro com N réplicas (SKIP LOCKED).
+            provide: SagaTimeoutScheduler,
+            useFactory: (orchestrator: SagaOrchestrator, config: ConfigService) =>
+                new SagaTimeoutScheduler(orchestrator, config),
+            inject: [SagaOrchestrator, ConfigService],
+        },
         {
             // Registra os handlers da saga na criação (antes de o consumidor SQS iniciar).
             provide: 'SAGA_EVENT_HANDLERS',
