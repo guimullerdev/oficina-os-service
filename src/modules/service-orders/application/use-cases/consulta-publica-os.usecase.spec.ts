@@ -7,7 +7,6 @@ const makeOsPrisma = (overrides: Record<string, unknown> = {}) => ({
     dataAbertura: new Date('2024-01-01'),
     cliente: { documento: '12345678901' },
     veiculo: { placa: 'ABC-1234', marca: 'Toyota', modelo: 'Corolla' },
-    orcamento: null,
     ...overrides,
 });
 
@@ -26,21 +25,7 @@ describe('ConsultaPublicaOsUseCase', () => {
         expect(result.numero).toBe('OS-2024-000001');
         expect(result.status).toBe('RECEBIDA');
         expect(result.veiculo.placa).toBe('ABC-1234');
-        expect(result.orcamento).toBeUndefined();
-    });
-
-    it('includes orcamento when present', async () => {
-        const raw = makeOsPrisma({
-            orcamento: { valorTotal: '350.00', status: 'ENVIADO' },
-        });
-        const prisma = makePrisma(raw);
-        const useCase = new ConsultaPublicaOsUseCase(prisma as any);
-
-        const result = await useCase.execute('OS-2024-000001', '12345678901');
-
-        expect(result.orcamento).toBeDefined();
-        expect(result.orcamento!.valorTotal).toBe(350);
-        expect(result.orcamento!.status).toBe('ENVIADO');
+        expect(result).not.toHaveProperty('orcamento');
     });
 
     it('throws NotFoundException when OS not found', async () => {

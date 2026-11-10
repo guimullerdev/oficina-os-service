@@ -24,20 +24,6 @@ enum StatusOS {
   ENTREGUE
 }
 
-enum TipoMovimentacao {
-  ENTRADA
-  BAIXA
-  RESERVA
-  LIBERACAO_RESERVA
-}
-
-enum StatusOrcamento {
-  GERADO
-  ENVIADO
-  APROVADO
-  REPROVADO
-}
-
 enum TipoDocumento {
   CPF
   CNPJ
@@ -84,59 +70,6 @@ model Veiculo {
   @@map("veiculos")
 }
 
-model Servico {
-  id            String   @id @default(uuid())
-  nome          String
-  descricao     String?
-  precoBase     Decimal  @map("preco_base") @db.Decimal(10, 2)
-  tempoEstimado Int?     @map("tempo_estimado")
-  ativo         Boolean  @default(true)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  osItensServico OsItemServico[]
-
-  @@map("servicos")
-}
-
-// ---------------------------------------------------------------------------
-// Estoque
-// ---------------------------------------------------------------------------
-
-model Peca {
-  id            String   @id @default(uuid())
-  nome          String
-  codigo        String?  @unique
-  descricao     String?
-  precoUnitario Decimal  @map("preco_unitario") @db.Decimal(10, 2)
-  qtdTotal      Int      @default(0) @map("qtd_total")
-  qtdDisponivel Int      @default(0) @map("qtd_disponivel")
-  qtdReservada  Int      @default(0) @map("qtd_reservada")
-  ativo         Boolean  @default(true)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  osItensPeca          OsItemPeca[]
-  movimentacoesEstoque MovimentacaoEstoque[]
-
-  @@map("pecas")
-}
-
-model MovimentacaoEstoque {
-  id         String           @id @default(uuid())
-  pecaId     String           @map("peca_id")
-  tipo       TipoMovimentacao
-  quantidade Int
-  osId       String?          @map("os_id")
-  observacao String?
-  createdAt  DateTime         @default(now()) @map("created_at")
-
-  peca Peca            @relation(fields: [pecaId], references: [id])
-  os   OrdemDeServico? @relation(fields: [osId], references: [id])
-
-  @@map("movimentacoes_estoque")
-}
-
 // ---------------------------------------------------------------------------
 // Ordem de Serviço
 // ---------------------------------------------------------------------------
@@ -154,12 +87,10 @@ model OrdemDeServico {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  cliente         Cliente               @relation(fields: [clienteId], references: [id])
-  veiculo         Veiculo               @relation(fields: [veiculoId], references: [id])
+  cliente         Cliente             @relation(fields: [clienteId], references: [id])
+  veiculo         Veiculo             @relation(fields: [veiculoId], references: [id])
   osItensServico  OsItemServico[]
   osItensPeca     OsItemPeca[]
-  orcamento       Orcamento?
-  movimentacoes   MovimentacaoEstoque[]
   historicoStatus HistoricoStatusOS[]
 
   @@map("ordens_de_servico")
@@ -189,8 +120,7 @@ model OsItemServico {
   fimExec       DateTime? @map("fim_exec")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  os      OrdemDeServico @relation(fields: [osId], references: [id])
-  servico Servico        @relation(fields: [servicoId], references: [id])
+  os OrdemDeServico @relation(fields: [osId], references: [id])
 
   @@map("os_itens_servico")
 }
@@ -204,31 +134,9 @@ model OsItemPeca {
   utilizada     Boolean  @default(false)
   createdAt     DateTime @default(now()) @map("created_at")
 
-  os   OrdemDeServico @relation(fields: [osId], references: [id])
-  peca Peca           @relation(fields: [pecaId], references: [id])
-
-  @@map("os_itens_peca")
-}
-
-// ---------------------------------------------------------------------------
-// Orçamento
-// ---------------------------------------------------------------------------
-
-model Orcamento {
-  id           String          @id @default(uuid())
-  osId         String          @unique @map("os_id")
-  status       StatusOrcamento @default(GERADO)
-  valorTotal   Decimal         @map("valor_total") @db.Decimal(10, 2)
-  dataGeracao  DateTime        @default(now()) @map("data_geracao")
-  dataEnvio    DateTime?       @map("data_envio")
-  dataResposta DateTime?       @map("data_resposta")
-  observacoes  String?
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
-
   os OrdemDeServico @relation(fields: [osId], references: [id])
 
-  @@map("orcamentos")
+  @@map("os_itens_peca")
 }
 
 // ---------------------------------------------------------------------------

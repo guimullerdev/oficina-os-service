@@ -34,7 +34,6 @@ export interface OrdemDeServicoProps {
     numero: string;
     clienteId: string;
     veiculoId: string;
-    orcamentoId?: string;
     status: StatusOS;
     arquivada: boolean;
     descricaoProblema?: string;
@@ -54,7 +53,6 @@ export class OrdemDeServico {
     get numero() { return this.props.numero; }
     get clienteId() { return this.props.clienteId; }
     get veiculoId() { return this.props.veiculoId; }
-    get orcamentoId() { return this.props.orcamentoId; }
     get status() { return this.props.status; }
     get arquivada() { return this.props.arquivada; }
     get descricaoProblema() { return this.props.descricaoProblema; }
@@ -105,10 +103,6 @@ export class OrdemDeServico {
             descricaoProblema: props.descricaoProblema ?? this.props.descricaoProblema,
             updatedAt: new Date(),
         });
-    }
-
-    vincularOrcamento(orcamentoId: string): OrdemDeServico {
-        return new OrdemDeServico({ ...this.props, orcamentoId, updatedAt: new Date() });
     }
 
     addServico(item: OsItemServico): OrdemDeServico {
@@ -287,7 +281,6 @@ export class OrdemDeServico {
             numero: this.props.numero,
             clienteId: this.props.clienteId,
             veiculoId: this.props.veiculoId,
-            orcamentoId: this.props.orcamentoId,
             status: this.props.status,
             arquivada: this.props.arquivada,
             descricaoProblema: this.props.descricaoProblema,

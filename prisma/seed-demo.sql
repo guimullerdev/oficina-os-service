@@ -46,27 +46,6 @@ VALUES
 ON CONFLICT (placa) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- Catálogo de serviços
--- ---------------------------------------------------------------------------
-INSERT INTO servicos (id, nome, descricao, preco_base, tempo_estimado, ativo, created_at, updated_at)
-VALUES
-  ('bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb', 'Troca de óleo e filtro', 'Óleo sintético 5W30 e filtro de óleo',   189.90, 45,  true, NOW() - INTERVAL '120 days', NOW()),
-  ('bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', 'Alinhamento e balanceamento', 'Quatro rodas',                      149.00, 60,  true, NOW() - INTERVAL '120 days', NOW()),
-  ('bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb', 'Revisão de freios', 'Pastilhas, discos e fluido',                  420.00, 120, true, NOW() - INTERVAL '120 days', NOW()),
-  ('bbbbbbbb-4444-4444-8444-bbbbbbbbbbbb', 'Diagnóstico eletrônico', 'Leitura de códigos e laudo',              120.00, 30,  true, NOW() - INTERVAL '120 days', NOW())
-ON CONFLICT (id) DO NOTHING;
-
--- ---------------------------------------------------------------------------
--- Estoque
--- ---------------------------------------------------------------------------
-INSERT INTO pecas (id, nome, codigo, descricao, preco_unitario, qtd_total, qtd_disponivel, qtd_reservada, ativo, created_at, updated_at)
-VALUES
-  ('cccccccc-1111-4111-8111-cccccccccccc', 'Filtro de óleo',      'FLT-001', 'Compatível com linha VW/Fiat',  38.50, 40, 40, 0, true, NOW() - INTERVAL '120 days', NOW()),
-  ('cccccccc-2222-4222-8222-cccccccccccc', 'Óleo 5W30 sintético', 'OLE-530', 'Litro',                          54.90, 60, 60, 0, true, NOW() - INTERVAL '120 days', NOW()),
-  ('cccccccc-3333-4333-8333-cccccccccccc', 'Pastilha de freio',   'FRE-210', 'Jogo dianteiro',                189.00, 12, 12, 0, true, NOW() - INTERVAL '120 days', NOW())
-ON CONFLICT (codigo) DO NOTHING;
-
--- ---------------------------------------------------------------------------
 -- Ordens de serviço
 -- ---------------------------------------------------------------------------
 -- OS-2026-0001 — encerrada, com trilha completa de status.
@@ -115,6 +94,9 @@ ON CONFLICT (id) DO NOTHING;
 -- ---------------------------------------------------------------------------
 -- Itens da OS encerrada
 -- ---------------------------------------------------------------------------
+-- servico_id / peca_id são referências fracas (UUIDs arbitrários): o catálogo
+-- de serviços e o estoque vivem em outros serviços, sem FK neste banco. O preço
+-- unitário fica denormalizado no item.
 INSERT INTO os_itens_servico (id, os_id, servico_id, preco_unitario, inicio_exec, fim_exec, created_at)
 VALUES
   ('ffffffff-1111-4111-8111-ffffffffffff', 'dddddddd-1111-4111-8111-dddddddddddd', 'bbbbbbbb-3333-4333-8333-bbbbbbbbbbbb', 420.00, NOW() - INTERVAL '10 days', NOW() - INTERVAL '9 days' - INTERVAL '5 hours', NOW() - INTERVAL '12 days'),
@@ -127,10 +109,5 @@ VALUES
   ('ffffffff-2222-4222-8222-ffffffffffff', 'dddddddd-1111-4111-8111-dddddddddddd', 'cccccccc-2222-4222-8222-cccccccccccc', 4,  54.90, true, NOW() - INTERVAL '11 days'),
   ('ffffffff-2223-4222-8222-ffffffffffff', 'dddddddd-1111-4111-8111-dddddddddddd', 'cccccccc-1111-4111-8111-cccccccccccc', 1,  38.50, true, NOW() - INTERVAL '11 days')
 ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO orcamentos (id, os_id, status, valor_total, data_geracao, data_envio, data_resposta, observacoes, created_at, updated_at)
-VALUES
-  ('ffffffff-3331-4333-8333-ffffffffffff', 'dddddddd-1111-4111-8111-dddddddddddd', 'APROVADO', 1053.50, NOW() - INTERVAL '11 days', NOW() - INTERVAL '11 days' + INTERVAL '1 hour', NOW() - INTERVAL '11 days' + INTERVAL '20 hours', 'Aprovado por telefone', NOW() - INTERVAL '11 days', NOW())
-ON CONFLICT (os_id) DO NOTHING;
 
 COMMIT;

@@ -11,7 +11,7 @@ export class ConsultaPublicaOsUseCase {
 
         const os = await this.prisma.ordemDeServico.findFirst({
             where: { numero },
-            include: { cliente: true, veiculo: true, orcamento: true },
+            include: { cliente: true, veiculo: true },
         });
 
         if (!os || os.cliente.documento !== digits) {
@@ -27,12 +27,6 @@ export class ConsultaPublicaOsUseCase {
                 marca: os.veiculo.marca,
                 modelo: os.veiculo.modelo,
             },
-            orcamento: os.orcamento
-                ? {
-                      valorTotal: Number(os.orcamento.valorTotal),
-                      status: os.orcamento.status,
-                  }
-                : undefined,
         };
     }
 }

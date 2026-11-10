@@ -5,6 +5,7 @@
 *        → diagnóstico → aprovação via webhook → executar → entregar
 */
 
+import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -48,13 +49,9 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
         await prisma.cliente.deleteMany();
         await prisma.user.deleteMany({ where: { email: 'e2e-os@test.com' } });
 
-        // remover após migration da Fase 2 (T4): os_itens_* ainda têm FK para servicos/pecas
-        await prisma.servico.deleteMany();
-        await prisma.peca.deleteMany();
-        const servico = await prisma.servico.create({ data: { nome: 'Alinhamento', precoBase: 120 } });
-        const peca = await prisma.peca.create({ data: { nome: 'Pastilha de freio', precoUnitario: 80 } });
-        servicoId = servico.id;
-        pecaId = peca.id;
+        // serviço/peça vivem em outros serviços: aqui são só referências fracas (UUIDs arbitrários)
+        servicoId = randomUUID();
+        pecaId = randomUUID();
 
         const authRes = await request(app.getHttpServer())
             .post('/auth/register')

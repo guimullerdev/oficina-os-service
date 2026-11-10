@@ -7,6 +7,7 @@
  *   (c) campos extras          → 400 (forbidNonWhitelisted)
  */
 
+import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -62,13 +63,9 @@ describe('DTO Validation (e2e)', () => {
             .send({ placa: 'VAL0001', marca: 'Honda', modelo: 'Civic', ano: 2019, clienteId });
         veiculoId = veiculo.body.id;
 
-        // remover após migration da Fase 2 (T4): os_itens_* ainda têm FK para servicos/pecas
-        await prisma.servico.deleteMany();
-        await prisma.peca.deleteMany();
-        const servico = await prisma.servico.create({ data: { nome: 'Revisão', precoBase: 200 } });
-        servicoId = servico.id;
-        const peca = await prisma.peca.create({ data: { nome: 'Vela de ignição', precoUnitario: 30 } });
-        pecaId = peca.id;
+        // serviço/peça vivem em outros serviços: aqui são só referências fracas (UUIDs arbitrários)
+        servicoId = randomUUID();
+        pecaId = randomUUID();
 
         const os = await request(app.getHttpServer())
             .post('/os')
