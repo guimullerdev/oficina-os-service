@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Inject, Injectable, BadRequestException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
@@ -9,6 +10,7 @@ import { CreateOsDto } from '../dto/create-service-orders.dto';
 import { AddServicoToOsUseCase } from './add-service-to-order.usecase';
 import { AddPecaToOsUseCase } from './add-part-to-order.usecase';
 import { DomainEvent } from '../../../../shared/messaging/domain-event';
+import { SagaOrchestrator } from '../saga/saga-orchestrator.service';
 
 @Injectable()
 export class CreateOrdemDeServicoUseCase {
@@ -21,6 +23,7 @@ export class CreateOrdemDeServicoUseCase {
         private readonly clienteRepo: IClienteRepository,
         private readonly addServicoUseCase: AddServicoToOsUseCase,
         private readonly addPecaUseCase: AddPecaToOsUseCase,
+        private readonly sagaOrchestrator: SagaOrchestrator,
     ) {}
 
     async execute(dto: CreateOsDto, ctx?: { correlationId?: string; traceparent?: string }): Promise<OrdemDeServico> {
@@ -59,7 +62,9 @@ export class CreateOrdemDeServicoUseCase {
             correlationId,
             traceparent: ctx?.traceparent,
         };
-        let saved = await this.repo.create(os, [evento]);
+        let saved = await this.repo.create(os, [evento], (tx) =>
+            this.sagaOrchestrator.iniciar(os.id, correlationId, tx as Prisma.TransactionClient),
+        );
 
         for (const s of dto.servicos ?? []) {
             saved = await this.addServicoUseCase.execute(saved.id, s.servicoId, s.precoUnitario);

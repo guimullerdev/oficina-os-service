@@ -40,6 +40,7 @@ describe('DTO Validation (e2e)', () => {
         // Cleanup
         await prisma.osItemServico.deleteMany();
         await prisma.osItemPeca.deleteMany();
+        await prisma.sagaInstancia.deleteMany();
         await prisma.ordemDeServico.deleteMany();
         await prisma.veiculo.deleteMany();
         await prisma.cliente.deleteMany();

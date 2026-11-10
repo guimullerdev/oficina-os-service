@@ -272,7 +272,7 @@ describe('FinishDiagnosisUseCase', () => {
         repo.findById.mockResolvedValue(makeOs(StatusOS.EM_DIAGNOSTICO));
         repo.update.mockResolvedValue(updated);
 
-        const useCase = new FinishDiagnosisUseCase(repo as any);
+        const useCase = new FinishDiagnosisUseCase(repo as any, { registrarDiagnosticoConcluido: jest.fn() } as any);
         const result = await useCase.execute('os-1');
 
         expect(repo.update).toHaveBeenCalledTimes(1);
@@ -284,7 +284,7 @@ describe('FinishDiagnosisUseCase', () => {
         const repo = mockOsRepo();
         repo.findById.mockResolvedValue(null);
 
-        const useCase = new FinishDiagnosisUseCase(repo as any);
+        const useCase = new FinishDiagnosisUseCase(repo as any, { registrarDiagnosticoConcluido: jest.fn() } as any);
         await expect(useCase.execute('missing')).rejects.toThrow(NotFoundException);
     });
 
@@ -292,7 +292,7 @@ describe('FinishDiagnosisUseCase', () => {
         const repo = mockOsRepo();
         repo.findById.mockResolvedValue(makeOs(StatusOS.RECEBIDA));
 
-        const useCase = new FinishDiagnosisUseCase(repo as any);
+        const useCase = new FinishDiagnosisUseCase(repo as any, { registrarDiagnosticoConcluido: jest.fn() } as any);
         await expect(useCase.execute('os-1')).rejects.toThrow(UnprocessableEntityException);
         expect(repo.update).not.toHaveBeenCalled();
     });
@@ -303,7 +303,7 @@ describe('FinishDiagnosisUseCase', () => {
         jest.spyOn(os, 'concluirDiagnostico').mockImplementation(() => { throw new Error('unexpected-fd'); });
         repo.findById.mockResolvedValue(os);
 
-        const useCase = new FinishDiagnosisUseCase(repo as any);
+        const useCase = new FinishDiagnosisUseCase(repo as any, { registrarDiagnosticoConcluido: jest.fn() } as any);
         await expect(useCase.execute('os-1')).rejects.toThrow('unexpected-fd');
     });
 });
