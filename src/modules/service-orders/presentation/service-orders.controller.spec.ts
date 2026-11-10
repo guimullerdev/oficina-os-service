@@ -1,3 +1,6 @@
+// O alias `src/` não é resolvido pelo Jest deste projeto; PrismaService só é token de DI.
+jest.mock('src/prisma/prisma.service', () => ({ PrismaService: class {} }), { virtual: true });
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ServiceOrdersController } from './service-orders.controller';
 import { CreateOrdemDeServicoUseCase } from '../application/use-cases/create-service-orders.usecase';
@@ -18,6 +21,10 @@ import { GetOsAcompanhamentoUseCase } from '../application/use-cases/get-os-acom
 import { GetTempoMedioOsUseCase } from '../application/use-cases/get-tempo-medio-os.usecase';
 import { ConsultaPublicaOsUseCase } from '../application/use-cases/consulta-publica-os.usecase';
 import { ProcessarWebhookNotificacaoUseCase } from '../application/use-cases/processar-webhook-notificacao.usecase';
+import { GetSagaUseCase } from '../application/saga/get-saga.usecase';
+import { ROLES_KEY } from '../../auth/decorators/roles.decorator';
+import { STAFF_ROLES } from '../../auth/domain/enums/user-role.enum';
+import { NotFoundException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PinoLogger } from 'nestjs-pino';
 import { OsStatusMetrics } from '../application/os-status-metrics.service';
@@ -49,6 +56,7 @@ describe('ServiceOrdersController', () => {
     let getTempoMedioUC: { execute: jest.Mock };
     let consultaPublicaUC: { execute: jest.Mock };
     let processarWebhookUC: { execute: jest.Mock };
+    let getSagaUC: { execute: jest.Mock };
 
     beforeEach(async () => {
         createUC = { execute: jest.fn().mockResolvedValue({ id: 'os-1' }) };
@@ -69,6 +77,8 @@ describe('ServiceOrdersController', () => {
         getTempoMedioUC = { execute: jest.fn().mockResolvedValue({ totalOsConsideradas: 0, tempoMedioEmHoras: 0 }) };
         consultaPublicaUC = { execute: jest.fn().mockResolvedValue({ numero: 'OS-001', status: 'RECEBIDA' }) };
         processarWebhookUC = { execute: jest.fn().mockResolvedValue({ resultado: 'APLICADA', osId: 'os-1', statusAtual: 'APROVADA', mensagem: 'ok' }) };
+
+        getSagaUC = { execute: jest.fn().mockResolvedValue({ id: 's-1', osId: 'os-1', passos: [] }) };
 
         const module: TestingModule = await Test.createTestingModule({
             controllers: [ServiceOrdersController],
@@ -91,6 +101,7 @@ describe('ServiceOrdersController', () => {
                 { provide: GetTempoMedioOsUseCase, useValue: getTempoMedioUC },
                 { provide: ConsultaPublicaOsUseCase, useValue: consultaPublicaUC },
                 { provide: ProcessarWebhookNotificacaoUseCase, useValue: processarWebhookUC },
+                { provide: GetSagaUseCase, useValue: getSagaUC },
                 // Exigido pelo OsStatusMetricsInterceptor aplicado ao controller.
                 { provide: PinoLogger, useValue: { info: jest.fn(), error: jest.fn() } },
                 // O interceptor passou a depender do serviço de métrica, e não
@@ -104,6 +115,21 @@ describe('ServiceOrdersController', () => {
             .compile();
 
         controller = module.get<ServiceOrdersController>(ServiceOrdersController);
+    });
+
+    it('getSaga devolve a saga da OS', async () => {
+        await expect(controller.getSaga('os-1')).resolves.toEqual({ id: 's-1', osId: 'os-1', passos: [] });
+        expect(getSagaUC.execute).toHaveBeenCalledWith('os-1');
+    });
+
+    it('getSaga propaga 404 quando não há saga', async () => {
+        getSagaUC.execute.mockRejectedValue(new NotFoundException());
+        await expect(controller.getSaga('os-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('getSaga é restrita aos perfis de staff', () => {
+        const roles = Reflect.getMetadata(ROLES_KEY, ServiceOrdersController.prototype.getSaga);
+        expect(roles).toEqual([...STAFF_ROLES]);
     });
 
     it('create delegates to CreateOrdemDeServicoUseCase', async () => {

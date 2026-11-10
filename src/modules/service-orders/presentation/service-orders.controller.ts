@@ -15,7 +15,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiOkResponse, ApiNotFoundResponse, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
 
 import { CreateOrdemDeServicoUseCase } from '../application/use-cases/create-service-orders.usecase';
 import { GetOrdemDeServicoUseCase } from '../application/use-cases/get-service-orders.usecase';
@@ -33,6 +33,8 @@ import { LiberarVeiculoUseCase } from '../application/use-cases/liberar-veiculo.
 import { DeliverOrderUseCase } from '../application/use-cases/deliver-order.usecase';
 import { GetOsAcompanhamentoUseCase } from '../application/use-cases/get-os-acompanhamento.usecase';
 import { GetTempoMedioOsUseCase } from '../application/use-cases/get-tempo-medio-os.usecase';
+import { GetSagaUseCase } from '../application/saga/get-saga.usecase';
+import { SagaResponseDto } from '../application/dto/saga-response.dto';
 import { ConsultaPublicaOsUseCase } from '../application/use-cases/consulta-publica-os.usecase';
 
 import { CreateOsDto } from '../application/dto/create-service-orders.dto';
@@ -79,6 +81,7 @@ export class ServiceOrdersController {
         private readonly getTempoMedioUseCase: GetTempoMedioOsUseCase,
         private readonly consultaPublicaUseCase: ConsultaPublicaOsUseCase,
         private readonly processarWebhookUseCase: ProcessarWebhookNotificacaoUseCase,
+        private readonly getSagaUseCase: GetSagaUseCase,
     ) {}
 
     @Post('webhook/notificacao')
@@ -204,6 +207,16 @@ export class ServiceOrdersController {
     @ApiResponse({ status: 404, description: 'OS não encontrada' })
     getAcompanhamento(@CurrentUser() actor: AuthenticatedActor, @Param('id') id: string) {
         return this.getAcompanhamentoUseCase.execute(id, this.escopoDoCliente(actor));
+    }
+
+    @Get(':id/saga')
+    @Roles(...STAFF_ROLES)
+    @ApiOperation({ summary: 'Consultar a saga (passos e estado) da OS' })
+    @ApiParam({ name: 'id', description: 'UUID da OS' })
+    @ApiOkResponse({ type: SagaResponseDto, description: 'Saga da OS com seus passos' })
+    @ApiNotFoundResponse({ description: 'OS sem saga' })
+    getSaga(@Param('id') id: string) {
+        return this.getSagaUseCase.execute(id);
     }
 
     @Post(':id/servicos')
