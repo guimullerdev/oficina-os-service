@@ -51,11 +51,11 @@ export class CreateOrdemDeServicoUseCase {
         let saved = await this.repo.create(os);
 
         for (const s of dto.servicos ?? []) {
-            saved = await this.addServicoUseCase.execute(saved.id, s.servicoId);
+            saved = await this.addServicoUseCase.execute(saved.id, s.servicoId, s.precoUnitario);
         }
 
         for (const p of dto.pecas ?? []) {
-            saved = await this.addPecaUseCase.execute(saved.id, p.pecaId, p.quantidade);
+            saved = await this.addPecaUseCase.execute(saved.id, p.pecaId, p.quantidade, p.precoUnitario);
         }
 
         return saved;

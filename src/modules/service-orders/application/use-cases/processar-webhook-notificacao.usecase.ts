@@ -10,11 +10,9 @@ import {
   ORDEM_DE_SERVICO_REPOSITORY,
   IOrdemDeServicoRepository,
 } from '../../domain/repositories/service-orders.repository.interface';
-import { StatusOS } from '../../domain/entities/service-orders.entity';
-import { GetOrcamentoUseCase } from '../../../orcamentos/application/use-cases/get-orcamento.usecase';
-import { AprovarOrcamentoUseCase } from '../../../orcamentos/application/use-cases/aprovar-orcamento.usecase';
-import { ReprovarOrcamentoUseCase } from '../../../orcamentos/application/use-cases/reprovar-orcamento.usecase';
+import { OrdemDeServico, StatusOS } from '../../domain/entities/service-orders.entity';
 import { WebhookAcao } from '../dto/webhook-notificacao.dto';
+import { OsStatusMetrics } from '../os-status-metrics.service';
 
 export type WebhookResultado =
   | 'APLICADA'
@@ -35,9 +33,7 @@ export class ProcessarWebhookNotificacaoUseCase {
   constructor(
     @Inject(ORDEM_DE_SERVICO_REPOSITORY)
     private readonly osRepo: IOrdemDeServicoRepository,
-    private readonly getOrcamentoUseCase: GetOrcamentoUseCase,
-    private readonly aprovarOrcamentoUseCase: AprovarOrcamentoUseCase,
-    private readonly reprovarOrcamentoUseCase: ReprovarOrcamentoUseCase,
+    private readonly metrics: OsStatusMetrics,
   ) {}
 
   async execute(
@@ -50,26 +46,28 @@ export class ProcessarWebhookNotificacaoUseCase {
         `Ordem de serviço ${dto.osId} não encontrada`,
       );
 
-    const resultado = await this.processar(os.status, dto, ip);
+    const resultado = await this.processar(os, dto, ip);
 
     this.logger.log(
       JSON.stringify({
         osId: dto.osId,
         acao: dto.acao,
         resultado: resultado.resultado,
+        observacoes: dto.observacoes,
         ip,
         timestamp: new Date().toISOString(),
       }),
     );
 
-    return { ...resultado, osId: dto.osId, statusAtual: os.status };
+    return { ...resultado, osId: dto.osId };
   }
 
   private async processar(
-    statusAtual: StatusOS,
+    os: OrdemDeServico,
     dto: { osId: string; acao: WebhookAcao; observacoes?: string },
     ip: string,
-  ): Promise<Omit<WebhookNotificacaoResult, 'osId' | 'statusAtual'>> {
+  ): Promise<Omit<WebhookNotificacaoResult, 'osId'>> {
+    const statusAtual = os.status;
     // Idempotency: ação já foi aplicada anteriormente
     if (
       (dto.acao === WebhookAcao.APROVAR && statusAtual === StatusOS.APROVADA) ||
@@ -77,6 +75,7 @@ export class ProcessarWebhookNotificacaoUseCase {
     ) {
       return {
         resultado: 'IGNORADA_IDEMPOTENTE',
+        statusAtual: os.status,
         mensagem: `Ação ${dto.acao} já foi aplicada anteriormente. Nenhuma alteração realizada.`,
       };
     }
@@ -98,20 +97,22 @@ export class ProcessarWebhookNotificacaoUseCase {
       );
     }
 
-    const orcamento = await this.getOrcamentoUseCase.executeByOsId(dto.osId);
+    const atualizada =
+      dto.acao === WebhookAcao.APROVAR
+        ? os.aprovarOrcamento()
+        : os.reprovarOrcamento();
+    const salva = await this.osRepo.update(atualizada);
+    // O interceptor não enxerga este caminho: a resposta do webhook não é uma
+    // OrdemDeServico, então a métrica de transição é emitida aqui.
+    this.metrics.registrarTransicao(salva);
 
-    if (dto.acao === WebhookAcao.APROVAR) {
-      await this.aprovarOrcamentoUseCase.execute(orcamento.id, dto.observacoes);
-      return {
-        resultado: 'APLICADA',
-        mensagem: 'Orçamento aprovado com sucesso.',
-      };
-    }
-
-    await this.reprovarOrcamentoUseCase.execute(orcamento.id, dto.observacoes);
     return {
       resultado: 'APLICADA',
-      mensagem: 'Orçamento reprovado com sucesso.',
+      statusAtual: salva.status,
+      mensagem:
+        dto.acao === WebhookAcao.APROVAR
+          ? 'Orçamento aprovado com sucesso.'
+          : 'Orçamento reprovado com sucesso.',
     };
   }
 }

@@ -31,7 +31,6 @@ import { UtilizarPecaUseCase } from '../application/use-cases/utilizar-peca.usec
 import { FinishOrderUseCase } from '../application/use-cases/finish-order.usecase';
 import { LiberarVeiculoUseCase } from '../application/use-cases/liberar-veiculo.usecase';
 import { DeliverOrderUseCase } from '../application/use-cases/deliver-order.usecase';
-import { GetOrcamentoUseCase } from '../../orcamentos/application/use-cases/get-orcamento.usecase';
 import { GetOsAcompanhamentoUseCase } from '../application/use-cases/get-os-acompanhamento.usecase';
 import { GetTempoMedioOsUseCase } from '../application/use-cases/get-tempo-medio-os.usecase';
 import { ConsultaPublicaOsUseCase } from '../application/use-cases/consulta-publica-os.usecase';
@@ -76,7 +75,6 @@ export class ServiceOrdersController {
         private readonly finishOrderUseCase: FinishOrderUseCase,
         private readonly liberarVeiculoUseCase: LiberarVeiculoUseCase,
         private readonly deliverOrderUseCase: DeliverOrderUseCase,
-        private readonly getOrcamentoUseCase: GetOrcamentoUseCase,
         private readonly getAcompanhamentoUseCase: GetOsAcompanhamentoUseCase,
         private readonly getTempoMedioUseCase: GetTempoMedioOsUseCase,
         private readonly consultaPublicaUseCase: ConsultaPublicaOsUseCase,
@@ -208,24 +206,15 @@ export class ServiceOrdersController {
         return this.getAcompanhamentoUseCase.execute(id, this.escopoDoCliente(actor));
     }
 
-    @Get(':id/orcamento')
-    @ApiOperation({ summary: 'Buscar orçamento da OS' })
-    @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Orçamento encontrado' })
-    @ApiResponse({ status: 404, description: 'Orçamento não encontrado para esta OS' })
-    getOrcamento(@Param('id') id: string) {
-        return this.getOrcamentoUseCase.executeByOsId(id);
-    }
-
     @Post(':id/servicos')
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Adicionar serviço à OS' })
     @ApiParam({ name: 'id', description: 'UUID da OS' })
     @ApiResponse({ status: 201, description: 'Serviço adicionado' })
-    @ApiResponse({ status: 404, description: 'OS ou serviço não encontrado' })
+    @ApiResponse({ status: 404, description: 'OS não encontrada' })
     @ApiResponse({ status: 409, description: 'Serviço já adicionado à OS' })
     addServico(@Param('id') id: string, @Body() dto: AddServicoDto) {
-        return this.addServicoUseCase.execute(id, dto.servicoId);
+        return this.addServicoUseCase.execute(id, dto.servicoId, dto.precoUnitario);
     }
 
     @Delete(':id/servicos/:itemId')
@@ -243,12 +232,12 @@ export class ServiceOrdersController {
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Adicionar peça à OS' })
     @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 201, description: 'Peça adicionada; estoque reservado' })
-    @ApiResponse({ status: 400, description: 'Quantidade < 1' })
-    @ApiResponse({ status: 404, description: 'OS ou peça não encontrada' })
-    @ApiResponse({ status: 422, description: 'Estoque disponível insuficiente' })
+    @ApiResponse({ status: 201, description: 'Peça adicionada' })
+    @ApiResponse({ status: 400, description: 'Quantidade < 1 ou preço unitário inválido' })
+    @ApiResponse({ status: 404, description: 'OS não encontrada' })
+    @ApiResponse({ status: 409, description: 'Peça já adicionada à OS ou quantidade inválida' })
     addPeca(@Param('id') id: string, @Body() dto: AddPecaDto) {
-        return this.addPecaUseCase.execute(id, dto.pecaId, dto.quantidade);
+        return this.addPecaUseCase.execute(id, dto.pecaId, dto.quantidade, dto.precoUnitario);
     }
 
     @Delete(':id/pecas/:itemId')
@@ -256,7 +245,7 @@ export class ServiceOrdersController {
     @ApiOperation({ summary: 'Remover peça da OS' })
     @ApiParam({ name: 'id', description: 'UUID da OS' })
     @ApiParam({ name: 'itemId', description: 'pecaId do item' })
-    @ApiResponse({ status: 200, description: 'Peça removida; reserva liberada' })
+    @ApiResponse({ status: 200, description: 'Peça removida' })
     @ApiResponse({ status: 404, description: 'OS ou peça não encontrada na OS' })
     removePeca(@Param('id') id: string, @Param('itemId') itemId: string) {
         return this.removePecaUseCase.execute(id, itemId);
@@ -274,7 +263,7 @@ export class ServiceOrdersController {
     @Patch(':id/concluir-diagnostico')
     @ApiOperation({ summary: 'Concluir diagnóstico (EM_DIAGNOSTICO → AGUARDANDO_APROVACAO)' })
     @ApiParam({ name: 'id', description: 'UUID da OS' })
-    @ApiResponse({ status: 200, description: 'Status atualizado; orçamento gerado automaticamente' })
+    @ApiResponse({ status: 200, description: 'Status atualizado para AGUARDANDO_APROVACAO' })
     @ApiResponse({ status: 422, description: 'Transição inválida' })
     finishDiagnosis(@Param('id') id: string) {
         return this.finishDiagnosisUseCase.execute(id);
@@ -305,10 +294,10 @@ export class ServiceOrdersController {
 
     @Patch(':id/pecas/:itemId/utilizar')
     @Roles(UserRole.MECANICO, UserRole.ADMIN)
-    @ApiOperation({ summary: 'Marcar peça como utilizada e registrar baixa (MECANICO ou ADMIN)' })
+    @ApiOperation({ summary: 'Marcar peça como utilizada (MECANICO ou ADMIN)' })
     @ApiParam({ name: 'id', description: 'UUID da OS' })
     @ApiParam({ name: 'itemId', description: 'ID do item de peça' })
-    @ApiResponse({ status: 200, description: 'Peça marcada como utilizada; baixa registrada' })
+    @ApiResponse({ status: 200, description: 'Peça marcada como utilizada' })
     utilizarPeca(@Param('id') id: string, @Param('itemId') itemId: string) {
         return this.utilizarPecaUseCase.execute(id, itemId);
     }

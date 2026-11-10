@@ -2,18 +2,24 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
     IsString, IsOptional, IsUUID, IsNotEmpty,
-    IsArray, ValidateNested, IsInt, Min,
+    IsArray, ValidateNested, IsInt, IsNumber, Max, Min,
 } from 'class-validator';
 
 export class CreateOsServicoDto {
-    @ApiProperty({ example: 'uuid-do-servico', description: 'UUID do serviço' })
+    @ApiProperty({ example: 'uuid-do-servico', description: 'UUID do serviço (referência fraca, não validada)' })
     @IsNotEmpty()
     @IsUUID()
     servicoId: string;
+
+    @ApiProperty({ example: 80, description: 'Preço unitário em reais (denormalizado; não validado contra catálogo)' })
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    @Max(99999999.99)
+    precoUnitario: number;
 }
 
 export class CreateOsPecaDto {
-    @ApiProperty({ example: 'uuid-da-peca', description: 'UUID da peça' })
+    @ApiProperty({ example: 'uuid-da-peca', description: 'UUID da peça (referência fraca, não validada)' })
     @IsNotEmpty()
     @IsUUID()
     pecaId: string;
@@ -22,6 +28,12 @@ export class CreateOsPecaDto {
     @IsInt()
     @Min(1)
     quantidade: number;
+
+    @ApiProperty({ example: 80, description: 'Preço unitário em reais (denormalizado; não validado contra catálogo)' })
+    @IsNumber({ maxDecimalPlaces: 2 })
+    @Min(0)
+    @Max(99999999.99)
+    precoUnitario: number;
 }
 
 export class CreateOsDto {

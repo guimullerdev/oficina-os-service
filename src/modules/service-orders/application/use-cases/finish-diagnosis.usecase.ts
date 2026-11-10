@@ -2,14 +2,12 @@ import { Inject, Injectable, NotFoundException, UnprocessableEntityException } f
 
 import { ORDEM_DE_SERVICO_REPOSITORY, IOrdemDeServicoRepository } from '../../domain/repositories/service-orders.repository.interface';
 import { InvalidTransitionError, OrdemDeServico } from '../../domain/entities/service-orders.entity';
-import { GerarOrcamentoUseCase } from '../../../orcamentos/application/use-cases/gerar-orcamento.usecase';
 
 @Injectable()
 export class FinishDiagnosisUseCase {
     constructor(
         @Inject(ORDEM_DE_SERVICO_REPOSITORY)
         private readonly repo: IOrdemDeServicoRepository,
-        private readonly gerarOrcamentoUseCase: GerarOrcamentoUseCase,
     ) {}
 
     async execute(id: string): Promise<OrdemDeServico> {
@@ -24,12 +22,6 @@ export class FinishDiagnosisUseCase {
             throw err;
         }
 
-        const saved = await this.repo.update(updated);
-
-        // Auto-create Orcamento
-        const valorTotal = saved.calcularTotal();
-        await this.gerarOrcamentoUseCase.execute(saved.id, valorTotal);
-
-        return saved;
+        return this.repo.update(updated);
     }
 }

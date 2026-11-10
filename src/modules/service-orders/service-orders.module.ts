@@ -2,9 +2,6 @@ import { OsStatusMetrics } from './application/os-status-metrics.service';
 import { Module } from '@nestjs/common';
 
 import { PrismaModule } from 'src/prisma/prisma.module';
-import { ServicesModule } from '../services/presentation/services.module';
-import { PartsModule } from '../parts/parts.module';
-import { EstoqueModule } from '../estoque/estoque.module';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
 
@@ -32,20 +29,13 @@ import { SendBudgetUseCase } from './application/use-cases/send-budget.usecase';
 import { ApproveBudgetUseCase } from './application/use-cases/approve-budget.usecase';
 import { RejectBudgetUseCase } from './application/use-cases/reject-budget.usecase';
 
-// GerarOrcamentoUseCase is needed for finish-diagnosis; GetOrcamentoUseCase for GET /os/:id/orcamento
 import { GetOsAcompanhamentoUseCase } from './application/use-cases/get-os-acompanhamento.usecase';
 import { GetTempoMedioOsUseCase } from './application/use-cases/get-tempo-medio-os.usecase';
 import { ConsultaPublicaOsUseCase } from './application/use-cases/consulta-publica-os.usecase';
 import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/processar-webhook-notificacao.usecase';
-import { GerarOrcamentoUseCase } from '../orcamentos/application/use-cases/gerar-orcamento.usecase';
-import { GetOrcamentoUseCase } from '../orcamentos/application/use-cases/get-orcamento.usecase';
-import { AprovarOrcamentoUseCase } from '../orcamentos/application/use-cases/aprovar-orcamento.usecase';
-import { ReprovarOrcamentoUseCase } from '../orcamentos/application/use-cases/reprovar-orcamento.usecase';
-import { ORCAMENTO_REPOSITORY } from '../orcamentos/domain/repositories/orcamento.repository.interface';
-import { OrcamentoPrismaRepository } from '../orcamentos/infrastructure/repositories/orcamento-prisma.repository';
 
 @Module({
-    imports: [PrismaModule, ServicesModule, PartsModule, EstoqueModule, VehiclesModule, CustomersModule],
+    imports: [PrismaModule, VehiclesModule, CustomersModule],
     controllers: [ServiceOrdersController],
     providers: [
         OsStatusMetrics,
@@ -72,17 +62,9 @@ import { OrcamentoPrismaRepository } from '../orcamentos/infrastructure/reposito
         GetTempoMedioOsUseCase,
         ConsultaPublicaOsUseCase,
         ProcessarWebhookNotificacaoUseCase,
-        GerarOrcamentoUseCase,
-        GetOrcamentoUseCase,
-        AprovarOrcamentoUseCase,
-        ReprovarOrcamentoUseCase,
         {
             provide: ORDEM_DE_SERVICO_REPOSITORY,
             useClass: OrdemDeServicoPrismaRepository,
-        },
-        {
-            provide: ORCAMENTO_REPOSITORY,
-            useClass: OrcamentoPrismaRepository,
         },
     ],
     exports: [ORDEM_DE_SERVICO_REPOSITORY],
