@@ -190,6 +190,44 @@ describe('CreateOrdemDeServicoUseCase', () => {
         });
     });
 
+    describe('domain event os.criada', () => {
+        it('passes an os.criada event with aggregate, payload and generated correlationId', async () => {
+            const { repo, veiculoRepo, clienteRepo, useCase } = makeUseCase();
+            (repo as any).generateNumero.mockResolvedValue('OS-008');
+            (repo as any).create.mockImplementation(async (o: OrdemDeServico) => o);
+            (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+            (veiculoRepo as any).findById.mockResolvedValue(makeVeiculo('v-1', 'c-1'));
+
+            const result = await useCase.execute({ clienteId: 'c-1', veiculoId: 'v-1' });
+
+            const [, events] = (repo as any).create.mock.calls[0];
+            expect(events).toHaveLength(1);
+            expect(events[0]).toEqual({
+                evento: 'os.criada',
+                aggregateType: 'ordem_de_servico',
+                aggregateId: result.id,
+                payload: { id: result.id, numero: 'OS-008', clienteId: 'c-1', veiculoId: 'v-1', status: StatusOS.RECEBIDA },
+                correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+                traceparent: undefined,
+            });
+        });
+
+        it('uses the correlationId and traceparent received in ctx', async () => {
+            const { repo, veiculoRepo, clienteRepo, useCase } = makeUseCase();
+            (repo as any).generateNumero.mockResolvedValue('OS-009');
+            (repo as any).create.mockImplementation(async (o: OrdemDeServico) => o);
+            (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+            (veiculoRepo as any).findById.mockResolvedValue(makeVeiculo('v-1', 'c-1'));
+            const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+            await useCase.execute({ clienteId: 'c-1', veiculoId: 'v-1' }, { correlationId: 'corr-123', traceparent });
+
+            const [, events] = (repo as any).create.mock.calls[0];
+            expect(events[0].correlationId).toBe('corr-123');
+            expect(events[0].traceparent).toBe(traceparent);
+        });
+    });
+
     describe('validation errors', () => {
         it('throws NotFoundException when customer does not exist', async () => {
             const { clienteRepo, useCase } = makeUseCase();

@@ -2,6 +2,7 @@ import { OsStatusMetrics } from './application/os-status-metrics.service';
 import { Module } from '@nestjs/common';
 
 import { PrismaModule } from 'src/prisma/prisma.module';
+import { OutboxWriter } from '../../shared/messaging/outbox.writer';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { CustomersModule } from '../customers/customers.module';
 
@@ -39,6 +40,7 @@ import { ProcessarWebhookNotificacaoUseCase } from './application/use-cases/proc
     controllers: [ServiceOrdersController],
     providers: [
         OsStatusMetrics,
+        OutboxWriter,
         CreateOrdemDeServicoUseCase,
         GetOrdemDeServicoUseCase,
         UpdateOrdemDeServicoUseCase,

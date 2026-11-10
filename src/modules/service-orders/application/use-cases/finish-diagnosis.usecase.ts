@@ -1,7 +1,9 @@
 import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 
 import { ORDEM_DE_SERVICO_REPOSITORY, IOrdemDeServicoRepository } from '../../domain/repositories/service-orders.repository.interface';
 import { InvalidTransitionError, OrdemDeServico } from '../../domain/entities/service-orders.entity';
+import { DomainEvent } from '../../../../shared/messaging/domain-event';
 
 @Injectable()
 export class FinishDiagnosisUseCase {
@@ -10,7 +12,7 @@ export class FinishDiagnosisUseCase {
         private readonly repo: IOrdemDeServicoRepository,
     ) {}
 
-    async execute(id: string): Promise<OrdemDeServico> {
+    async execute(id: string, ctx?: { correlationId?: string; traceparent?: string }): Promise<OrdemDeServico> {
         const os = await this.repo.findById(id);
         if (!os) throw new NotFoundException(`Ordem de serviço ${id} não encontrada`);
 
@@ -22,6 +24,15 @@ export class FinishDiagnosisUseCase {
             throw err;
         }
 
-        return this.repo.update(updated);
+        const evento: DomainEvent = {
+            evento: 'diagnostico.concluido',
+            aggregateType: 'ordem_de_servico',
+            aggregateId: updated.id,
+            payload: { id: updated.id, status: updated.status },
+            correlationId: ctx?.correlationId ?? randomUUID(),
+            traceparent: ctx?.traceparent,
+        };
+
+        return this.repo.update(updated, [evento]);
     }
 }
