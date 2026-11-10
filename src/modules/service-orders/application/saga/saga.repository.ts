@@ -66,6 +66,13 @@ export class SagaPrismaRepository {
         });
     }
 
+    buscarPorId(sagaId: string, tx?: Prisma.TransactionClient): Promise<SagaComPassos | null> {
+        return this.cliente(tx).sagaInstancia.findUnique({
+            where: { id: sagaId },
+            include: includePassos,
+        });
+    }
+
     buscarPorCorrelationId(
         correlationId: string,
         tx?: Prisma.TransactionClient,

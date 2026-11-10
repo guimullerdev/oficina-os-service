@@ -134,6 +134,31 @@ describe('SagaPrismaRepository', () => {
         });
     });
 
+    describe('buscarPorId', () => {
+        it('busca pela chave primária com passos ordenados', async () => {
+            await repo.buscarPorId('saga-1');
+
+            expect(prisma.sagaInstancia.findUnique).toHaveBeenCalledWith({
+                where: { id: 'saga-1' },
+                include: { passos: { orderBy: { ordem: 'asc' } } },
+            });
+        });
+
+        it('usa o tx quando informado e devolve a saga encontrada', async () => {
+            tx.sagaInstancia.findUnique.mockResolvedValue({ id: 'saga-tx', passos: [] });
+
+            const result = await repo.buscarPorId('saga-tx', txCliente());
+
+            expect(tx.sagaInstancia.findUnique).toHaveBeenCalledTimes(1);
+            expect(prisma.sagaInstancia.findUnique).not.toHaveBeenCalled();
+            expect(result).toEqual({ id: 'saga-tx', passos: [] });
+        });
+
+        it('devolve null quando a saga não existe', async () => {
+            await expect(repo.buscarPorId('inexistente')).resolves.toBeNull();
+        });
+    });
+
     describe('atualizarPassoSeStatus', () => {
         it('retorna 1 quando o passo estava no status esperado', async () => {
             prisma.sagaPasso.updateMany.mockResolvedValue({ count: 1 });
