@@ -22,12 +22,14 @@
     "generate": "plop"
   },
   "dependencies": {
+    "@aws-sdk/client-sns": "^3.1165.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/mapped-types": "*",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^12.0.3",
     "@nestjs/swagger": "^11.2.7",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
@@ -55,6 +57,7 @@
     "@types/newrelic": "^9.14.8",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "aws-sdk-client-mock": "^4.1.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

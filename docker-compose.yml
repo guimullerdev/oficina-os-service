@@ -39,6 +39,17 @@ services:
       - .:/app
       - /app/node_modules
 
+  localstack:
+    image: localstack/localstack
+    container_name: oficina_localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: sns
+    ports:
+      - '4566:4566'
+    volumes:
+      - ./scripts/localstack/init-sns.sh:/etc/localstack/init/ready.d/init-sns.sh
+
   sonarqube:
     image: sonarqube:community
     container_name: sonarqube
