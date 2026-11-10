@@ -16,5 +16,9 @@ export type IncomingMessage = {
  */
 export interface MessageHandler {
   readonly evento: string;
-  handle(message: IncomingMessage): Promise<void>;
+  /**
+   * `tx` é o cliente da transação em que a idempotência foi registrada; os
+   * handlers que gravam no banco devem usá-lo para atomicidade.
+   */
+  handle(message: IncomingMessage, tx?: unknown): Promise<void>;
 }

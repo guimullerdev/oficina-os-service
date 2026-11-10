@@ -49,6 +49,6 @@ subscribe_queue() {
 }
 
 subscribe_queue "$BILLING_TOPIC_ARN" \
-  '{"evento":["orcamento.gerado","orcamento.aprovado","orcamento.reprovado"]}'
+  '{"evento":["orcamento.gerado","orcamento.aprovado","orcamento.reprovado","pagamento.confirmado","pagamento.recusado"]}'
 subscribe_queue "$EXECUCAO_TOPIC_ARN" \
   '{"evento":["execucao.iniciada","execucao.concluida","execucao.falhou"]}'

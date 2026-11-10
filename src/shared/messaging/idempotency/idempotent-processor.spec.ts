@@ -49,7 +49,7 @@ const makeHarness = () => {
   });
 
   const prisma = { $transaction } as unknown as PrismaService;
-  return { prisma, $transaction, create, committed };
+  return { prisma, $transaction, create, committed, tx };
 };
 
 const makeHandler = () => {
@@ -82,7 +82,7 @@ describe('IdempotentProcessor', () => {
       data: { eventId: 'evt-1', evento: 'os.criada' },
     });
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(handle).toHaveBeenCalledWith(msg);
+    expect(handle).toHaveBeenCalledWith(msg, expect.anything());
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -177,5 +177,15 @@ describe('IdempotentProcessor', () => {
       processor.process(message({ eventId: 'evt-1' }), handler),
     ).rejects.toThrow('connection lost');
     expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('passes the transaction client to the handler', async () => {
+    const { prisma, tx } = makeHarness();
+    const { handler, handle } = makeHandler();
+    const processor = new IdempotentProcessor(prisma);
+
+    await processor.process(message(), handler);
+
+    expect(handle).toHaveBeenCalledWith(expect.anything(), tx);
   });
 });
