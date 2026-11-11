@@ -1,19 +1,22 @@
-# Oficina Mecânica API — Tech Challenge Fase 3
+# Oficina Mecânica — Serviço de OS — Tech Challenge Fase 4
 
-API REST de gestão de uma oficina mecânica: ordens de serviço (OS), clientes e
-veículos. Evolução das fases anteriores,
-agora rodando em **infraestrutura real na AWS**, com autenticação de cliente
+Microsserviço de **Ordens de Serviço (OS)** da Fase 4: API REST de gestão de
+uma oficina mecânica (OS, clientes, veículos e autenticação) e orquestrador da
+Saga que coordena os serviços de Billing e Execução. Evolução das fases
+anteriores, rodando em **infraestrutura real na AWS**, com autenticação de cliente
 por CPF via função serverless, deploy automatizado em Kubernetes e
 observabilidade ponta a ponta.
 
 **Stack:** NestJS · Prisma 7 · PostgreSQL (RDS) · Docker · Kubernetes (EKS) ·
 AWS API Gateway · AWS Lambda · Terraform · GitHub Actions · New Relic
 
-Este é um dos **4 repositórios** da Fase 3:
+Este é um dos **6 repositórios** da Fase 4:
 
 | Repositório | Papel |
 |---|---|
-| **`oficina-os-service`** (aqui; antigo `TECH-CHALLENGE-FASE-ONE`) | aplicação, manifestos Kubernetes e pipeline de deploy |
+| **`oficina-os-service`** (aqui; antigo `TECH-CHALLENGE-FASE-ONE`) | microsserviço de OS: aplicação, orquestrador da Saga, manifestos Kubernetes e pipeline de deploy |
+| [`oficina-billing-service`](https://github.com/guimullerdev/oficina-billing-service) | microsserviço de orçamento e pagamento |
+| [`oficina-execucao-service`](https://github.com/guimullerdev/oficina-execucao-service) | microsserviço de execução do serviço e estoque de peças |
 | [`oficina-auth-lambda`](https://github.com/guimullerdev/oficina-auth-lambda) | função serverless de autenticação por CPF |
 | [`oficina-infra-k8s`](https://github.com/guimullerdev/oficina-infra-k8s) | cluster EKS, API Gateway e observabilidade |
 | [`oficina-infra-db`](https://github.com/guimullerdev/oficina-infra-db) | banco de dados gerenciado (RDS) |
@@ -95,6 +98,88 @@ existem.
 ---
 
 ## Arquitetura
+
+### Visão dos microsserviços
+
+A Fase 4 divide o antigo monólito em três serviços, cada um com seu banco e sua
+própria infraestrutura, que conversam por eventos (SNS + SQS). Diagramas:
+[arquitetura de microsserviços](docs/diagrams/0005-arquitetura-microsservicos.md)
+e [sequência da Saga](docs/diagrams/0006-sequencia-saga-os.md).
+
+| Serviço | Dono de | Tópico que publica |
+|---|---|---|
+| **OS** (este repo) | OS, clientes, veículos, autenticação e o estado da Saga | `oficina-os-events` |
+| **Billing** | orçamento e pagamento | `oficina-billing-events` |
+| **Execução** | execução do serviço e estoque de peças | `oficina-execucao-events` |
+
+Papel deste serviço: é dono de OS, clientes, veículos e auth; **hospeda o
+orquestrador da Saga**; publica eventos via outbox → SNS (tópico
+`oficina-os-events`) e consome a própria fila SQS (`oficina-os-queue`). Os
+tópicos vivem no `oficina-infra-k8s`; a fila, a DLQ e as subscriptions vivem em
+[`terraform/`](terraform/) deste repo (ADR
+[0007](docs/adr/0007-propriedade-topicos-filas.md)).
+
+### Saga orquestrada
+
+A Saga do sistema é **orquestrada**, com o orquestrador dentro do OS Service
+(decisão da [RFC 0006](docs/rfc/0006-saga-pattern.md); propriedade de tópicos e
+filas na [ADR 0007](docs/adr/0007-propriedade-topicos-filas.md)).
+
+**Por que orquestrada e não coreografada:**
+
+- **Visibilidade central:** `GET /os/:id/saga` devolve a instância e todos os
+  passos (`saga_instancias` / `saga_passos`) num só lugar.
+- **Compensações e timeouts explícitos:** cada falha mapeia para uma compensação
+  declarada, e cada passo tem timeout próprio (`saga.passo.expirado`).
+- **Um único lugar para a máquina de estados:** a definição vive em
+  `saga-definicao.ts`, em vez de espalhada por três repositórios.
+- **Fácil de evidenciar e testar:** o caminho feliz e o compensado são cobertos
+  por um cenário BDD de ponta a ponta (ver [Testes BDD](#testes-bdd-compensação-da-saga)).
+
+**Trade-offs da Saga coreografada:** o fluxo fica implícito, emergindo de reações
+encadeadas; é difícil de rastrear e de demonstrar; o rollback fica implícito; e
+os serviços tendem a depender ciclicamente uns dos eventos dos outros.
+
+**Custo da escolha:** o OS Service vira coordenador e ponto único de lógica do
+fluxo. Se ele ficar indisponível, as sagas em andamento paralisam; nenhum dado
+se perde, porque os eventos pendentes ficam no `outbox` e saem quando o serviço
+volta.
+
+### Eventos
+
+Publicados por este serviço no tópico `oficina-os-events` (fonte:
+`src/modules/service-orders/application/saga/saga-definicao.ts`):
+
+| Evento | Passo da Saga | Quando |
+|---|---|---|
+| `os.criada` | `ABRIR_OS` | abertura da OS |
+| `diagnostico.concluido` | `GERAR_ORCAMENTO` | diagnóstico concluído |
+| `os.execucao.solicitada` | `EXECUTAR` | orçamento aprovado |
+| `os.cobranca.solicitada` | `COBRAR` | execução concluída |
+| `os.finalizada` | `CONFIRMAR` | pagamento confirmado |
+| `saga.passo.expirado` | qualquer | timeout do passo (ver [Time-out de passos da saga](#time-out-de-passos-da-saga)) |
+
+Consumidos pela fila `oficina-os-queue` (filter policy em `terraform/main.tf`,
+atributo `evento`):
+
+| Origem | Evento | Efeito na Saga |
+|---|---|---|
+| `oficina-billing-events` | `orcamento.gerado` | conclui `GERAR_ORCAMENTO` |
+| `oficina-billing-events` | `orcamento.aprovado` | conclui `APROVAR_ORCAMENTO` |
+| `oficina-billing-events` | `orcamento.reprovado` | compensação `OS_REPROVADA`: passo `COMPENSADO`, saga `COMPENSADA` |
+| `oficina-billing-events` | `pagamento.confirmado` | conclui `COBRAR` |
+| `oficina-billing-events` | `pagamento.recusado` | compensação `PAGAMENTO_PENDENTE`: passo `FALHOU`, saga `PENDENTE` |
+| `oficina-execucao-events` | `execucao.iniciada` | progresso de `EXECUTAR` (não conclui o passo) |
+| `oficina-execucao-events` | `execucao.concluida` | conclui `EXECUTAR` |
+| `oficina-execucao-events` | `execucao.falhou` | compensação `OS_VOLTA_APROVADA`: passo `COMPENSADO`, saga `COMPENSADA` |
+
+### Filas
+
+- Fila `oficina-os-queue`, com DLQ `oficina-os-dlq` e redrive
+  `maxReceiveCount = 3` (`terraform/variables.tf`).
+- Entrega at-least-once: a idempotência é por `eventId`. Detalhes em
+  [Publicação de eventos (outbox → SNS)](#publicação-de-eventos-outbox--sns) e
+  [Consumo de eventos (SQS)](#consumo-de-eventos-sqs).
 
 ### Componentes da aplicação
 
