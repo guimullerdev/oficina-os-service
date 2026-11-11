@@ -18,65 +18,69 @@ sequenceDiagram
     participant EXEC as "Execução e Produção"
     participant MP as "Mercado Pago"
 
-    Note over OS,OUTBOX: Passo 1, abertura da OS
+    Note over OS,OUTBOX: Passo 1 (ABRIR_OS), abertura da OS
     Staff->>OS: POST /os
     OS->>SAGA: inicia saga (chamada interna)
     OS->>OUTBOX: grava os.criada na mesma transação
-    Note over OS: OS RECEBIDA
+    Note over SAGA: passo ABRIR_OS CONCLUIDO
     OS-->>Staff: 201 Created
     OUTBOX->>BUS: publisher envia os.criada
 
-    Note over BILL: Passo 2, orçamento gerado
-    BUS->>BILL: os.criada (fila do Billing)
+    Note over BILL: Passo 2 (GERAR_ORCAMENTO), orçamento gerado
+    SAGA->>OUTBOX: grava diagnostico.concluido
+    OUTBOX->>BUS: publisher envia diagnostico.concluido
+    BUS->>BILL: diagnostico.concluido (fila do Billing)
     BILL->>BILL: gera orçamento
     BILL->>BUS: publica orcamento.gerado
     BUS->>SAGA: orcamento.gerado (fila do OS)
-    Note over OS,SAGA: OS AGUARDANDO_APROVACAO
+    Note over SAGA: passo GERAR_ORCAMENTO CONCLUIDO
 
-    Note over BILL: Passo 3, aprovação e início da execução
+    Note over BILL: Passo 3 (APROVAR_ORCAMENTO), aprovação
     Staff->>BILL: PATCH /orcamentos/{id}/aprovar
     BILL->>BUS: publica orcamento.aprovado
     BUS->>SAGA: orcamento.aprovado (fila do OS)
-    Note over OS,SAGA: OS APROVADA
-    SAGA->>OUTBOX: grava execucao.solicitada
-    OUTBOX->>BUS: publisher envia execucao.solicitada
-    BUS->>EXEC: execucao.solicitada (fila da Execução)
+    Note over SAGA: passo APROVAR_ORCAMENTO CONCLUIDO
+    SAGA->>OUTBOX: grava os.execucao.solicitada
+    OUTBOX->>BUS: publisher envia os.execucao.solicitada
+    BUS->>EXEC: os.execucao.solicitada (fila da Execução)
 
-    Note over EXEC: Passo 4, execução concluída
+    Note over EXEC: Passo 4 (EXECUTAR), execução concluída
     EXEC->>BUS: publica execucao.iniciada
     BUS->>SAGA: execucao.iniciada (fila do OS)
-    Note over OS,SAGA: OS EM_EXECUCAO
+    Note over SAGA: passo EXECUTAR segue EM_ANDAMENTO (progresso)
     EXEC->>BUS: publica execucao.concluida
     BUS->>SAGA: execucao.concluida (fila do OS)
-    Note over OS,SAGA: OS FINALIZADA
+    Note over SAGA: passo EXECUTAR CONCLUIDO
 
-    Note over BILL: Passo 5, cobrança
-    SAGA->>OUTBOX: grava pagamento.solicitado
-    OUTBOX->>BUS: publisher envia pagamento.solicitado
-    BUS->>BILL: pagamento.solicitado (fila do Billing)
+    Note over BILL: Passo 5 (COBRAR), cobrança
+    SAGA->>OUTBOX: grava os.cobranca.solicitada
+    OUTBOX->>BUS: publisher envia os.cobranca.solicitada
+    BUS->>BILL: os.cobranca.solicitada (fila do Billing)
     BILL->>MP: cria preference
     MP-->>BILL: preference criada (init_point)
-    Note over OS,SAGA: OS segue FINALIZADA, aguardando webhook
+    Note over SAGA: passo COBRAR aguarda o webhook
     Cliente->>MP: paga pelo init_point
 
-    Note over BILL: Passo 6, pagamento confirmado
+    Note over BILL: Passo 6 (CONFIRMAR), pagamento confirmado
     MP->>BILL: webhook de pagamento (x-signature)
     BILL->>BILL: valida x-signature
     BILL->>BUS: publica pagamento.confirmado
     BUS->>SAGA: pagamento.confirmado (fila do OS)
-    Note over OS,SAGA: OS liberada para ENTREGUE
+    SAGA->>OUTBOX: grava os.finalizada
+    OUTBOX->>BUS: publisher envia os.finalizada
+    Note over SAGA: saga CONCLUIDA
 
     alt orçamento reprovado
         Staff->>BILL: PATCH /orcamentos/{id}/reprovar
         BILL->>BUS: publica orcamento.reprovado
         BUS->>SAGA: orcamento.reprovado (fila do OS)
-        Note over OS,SAGA: OS REPROVADA
+        Note over OS,SAGA: OS REPROVADA, passo COMPENSADO
         BUS->>EXEC: orcamento.reprovado (fila da Execução)
         EXEC->>EXEC: libera reserva de peças
     else execução falhou
         EXEC->>BUS: publica execucao.falhou
         BUS->>SAGA: execucao.falhou (fila do OS)
-        Note over OS,SAGA: OS volta para APROVADA
+        Note over OS,SAGA: OS volta para APROVADA, passo COMPENSADO
         BUS->>BILL: execucao.falhou (fila do Billing)
         BILL->>BILL: cancela orçamento
     else pagamento recusado
@@ -84,7 +88,12 @@ sequenceDiagram
         BILL->>BILL: cancela orçamento
         BILL->>BUS: publica pagamento.recusado
         BUS->>SAGA: pagamento.recusado (fila do OS)
-        Note over OS,SAGA: OS registra pendência
+        Note over OS,SAGA: saga PENDENTE, OS sem mudança de status
+    else passo expirou (timeout)
+        SAGA->>SAGA: passo EXPIRADO vira COMPENSADO
+        SAGA->>OUTBOX: grava saga.passo.expirado
+        OUTBOX->>BUS: publisher envia saga.passo.expirado
+        Note over OS,SAGA: saga COMPENSADA, OS sem mudança de status
     else mensagem envenenada
         BUS->>BUS: 3 tentativas falham
         Note over BUS: mensagem vai para a DLQ
@@ -94,6 +103,11 @@ sequenceDiagram
 
 ## Notas
 
+- Na saga, os eventos do caminho feliz só avançam os passos
+  (`CONCLUIDO`); eles não alteram o status da OS. O status da OS avança
+  pelos endpoints REST (`iniciar-execucao`, `finalizar-execucao`,
+  `entregar`). Só as compensações `orcamento.reprovado` e
+  `execucao.falhou` mudam a OS.
 - Idempotência: cada consumidor (OS Service, Billing Service e
   Execução e Produção) mantém a tabela `mensagens_processadas` com o
   `messageId` único e descarta duplicatas. A entrega é at-least-once,

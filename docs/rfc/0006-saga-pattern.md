@@ -3,6 +3,7 @@
 - **Status**: Aceita
 - **Autor(es)**: Guilherme Müller
 - **Data**: 2026-11-08
+- **Atualizado em 2026-11-11**: nomes de eventos alinhados ao código
 - **Repos afetados**: `oficina-os-service` (orquestrador),
   `oficina-billing-service`, `oficina-execucao-service`,
   `oficina-infra-k8s`
@@ -85,23 +86,23 @@ e descarta duplicatas (idempotência).
 
 **Caminho feliz — 6 passos:**
 
-| # | Passo | Comando / evento | Status da OS |
+| # | Passo | Comando / evento | Status do passo (a saga não altera a OS no caminho feliz) |
 |---|---|---|---|
-| 1 | Abrir OS | `POST /os` → `os.criada` | `RECEBIDA` |
-| 2 | Gerar orçamento | Billing consome → `orcamento.gerado` | `AGUARDANDO_APROVACAO` |
-| 3 | Aprovar (Billing Service) | `PATCH /orcamentos/{id}/aprovar` → `orcamento.aprovado` → `execucao.solicitada` | `APROVADA` |
-| 4 | Executar | Execução consome → `execucao.iniciada`, `execucao.concluida` | `EM_EXECUCAO` → `FINALIZADA` |
-| 5 | Cobrar | OS publica `pagamento.solicitado`; Billing cria a preference no Mercado Pago | `FINALIZADA` (aguarda webhook) |
-| 6 | Confirmar | webhook MP → `pagamento.confirmado` | liberada para `ENTREGUE` |
+| 1 | `ABRIR_OS` | `POST /os` → `os.criada` | `CONCLUIDO` |
+| 2 | `GERAR_ORCAMENTO` | OS publica `diagnostico.concluido`; Billing consome → `orcamento.gerado` | `CONCLUIDO` |
+| 3 | `APROVAR_ORCAMENTO` | `PATCH /orcamentos/{id}/aprovar` → `orcamento.aprovado` | `CONCLUIDO` |
+| 4 | `EXECUTAR` | OS publica `os.execucao.solicitada`; Execução consome → `execucao.iniciada`, `execucao.concluida` | `CONCLUIDO` |
+| 5 | `COBRAR` | OS publica `os.cobranca.solicitada`; Billing cria a preference no Mercado Pago | `EM_ANDAMENTO` (aguarda webhook) |
+| 6 | `CONFIRMAR` | webhook MP → `pagamento.confirmado`; OS publica `os.finalizada` | `CONCLUIDO` |
 
 **Compensações — 5 casos:**
 
 | Falha | Evento | Compensação |
 |---|---|---|
-| Orçamento reprovado | `orcamento.reprovado` | OS → `REPROVADA`; Execução libera a reserva de peças |
-| Execução falhou | `execucao.falhou` | OS volta para `APROVADA`; Billing cancela o orçamento |
-| Pagamento recusado | `pagamento.recusado` | Billing cancela o orçamento; OS registra pendência |
-| Timeout de etapa | `saga.passo.expirado` | compensa o passo; `saga_passos.status = COMPENSADO` |
+| Orçamento reprovado | `orcamento.reprovado` | OS → `REPROVADA`, passo `COMPENSADO`; Execução libera a reserva de peças |
+| Execução falhou | `execucao.falhou` | OS volta para `APROVADA`, passo `COMPENSADO`; Billing cancela o orçamento |
+| Pagamento recusado | `pagamento.recusado` | Billing cancela o orçamento; saga `PENDENTE`, OS não muda de status |
+| Timeout de etapa | `saga.passo.expirado` | compensa o passo; `saga_passos.status = COMPENSADO`; OS não muda de status |
 | Mensagem envenenada | 3 tentativas falhas → DLQ | alerta New Relic na profundidade da DLQ |
 
 **Inspeção.** `GET /os/{id}/saga` devolve a instância e seus passos.
