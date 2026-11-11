@@ -539,7 +539,7 @@ O job `build-and-test` de `.github/workflows/ci-cd.yml` executa, nesta ordem:
    relatório `coverage/lcov.info` gerado no passo anterior.
 
 **Configuração.** A análise é definida em `sonar-project.properties`
-(`sonar.projectKey=oficina-os-service`). Ele exclui `src/generated/**` da
+(`sonar.projectKey=guimullerdev_oficina-os-service`). Ele exclui `src/generated/**` da
 análise, e as exclusões de cobertura são as mesmas do `collectCoverageFrom`
 do Jest. A organização vem da variável de repositório `SONAR_ORGANIZATION` e
 o token de autenticação vem do secret `SONAR_TOKEN`. Sem o secret (por
