@@ -147,8 +147,10 @@ em `main` e `develop` (ignorando mudanças só em `docs/` e `*.md`), por
 pull_request para essas branches e manualmente (`workflow_dispatch`), rodando
 em runner `ubuntu-latest`:
 
-1. **build-and-test** — `yarn install --frozen-lockfile`, `yarn build` e
-   `yarn test:cov` (com threshold de cobertura). Roda em `main` e `develop`.
+1. **build-and-test** — `yarn install --frozen-lockfile`, `yarn lint:ci`,
+   `yarn build`, `yarn test:cov` (com threshold de cobertura) e a análise do
+   SonarQube Cloud. Roda em `main` e `develop`. Detalhes na seção
+   [Qualidade de código](#qualidade-de-código-lint-e-sonarqube-cloud).
 2. **terraform-check** — `terraform fmt -check`, `init -backend=false` e
    `validate`, só checagens estáticas, sem credenciais AWS. Roda em `main` e
    `develop`.
@@ -523,6 +525,46 @@ As features ficam fora da cobertura: o Jest só lê `src/` (`rootDir` e
 comportamento de ponta a ponta, mas não entra no threshold de cobertura nem
 nas métricas do Sonar.
 
+### Qualidade de código (lint e SonarQube Cloud)
+
+O job `build-and-test` de `.github/workflows/ci-cd.yml` executa, nesta ordem:
+
+1. `yarn lint:ci` — ESLint com `--max-warnings=0` e sem `--fix`: qualquer erro
+   ou warning falha o job. O `yarn lint` continua sendo o fixer local, que
+   aplica as correções automáticas.
+2. `yarn build`
+3. `yarn test:cov` — testes com cobertura e thresholds globais de 90% em
+   statements, 79% em branches, 90% em functions e 90% em lines.
+4. Scan do **SonarQube Cloud** (`SonarSource/sonarqube-scan-action`), que lê o
+   relatório `coverage/lcov.info` gerado no passo anterior.
+
+**Configuração.** A análise é definida em `sonar-project.properties`
+(`sonar.projectKey=oficina-os-service`). Ele exclui `src/generated/**` da
+análise, e as exclusões de cobertura são as mesmas do `collectCoverageFrom`
+do Jest. A organização vem da variável de repositório `SONAR_ORGANIZATION` e
+o token de autenticação vem do secret `SONAR_TOKEN`. Sem o secret (por
+exemplo, em PR de fork), o step do Sonar é pulado.
+
+**Quality Gate.** Por ora o gate é informativo e não bloqueia o PR. Na
+sequência (Fase 9 T8) ele passa a bloquear o PR se a cobertura em código novo
+for menor que 80% ou se houver issue de severidade *blocker*.
+
+**Setup (uma vez, manual):**
+
+1. Criar uma organização no plano Free do SonarQube Cloud e importar o repositório.
+2. **Desligar o Automatic Analysis** do projeto. Ele conflita com o scan do CI.
+3. Gerar um token e salvá-lo como secret `SONAR_TOKEN` no GitHub.
+4. Salvar a organization key como variável de repositório `SONAR_ORGANIZATION`.
+
+**Scan local (opcional).** Depois de `yarn test:cov`:
+
+```bash
+SONAR_TOKEN=... npx sonarqube-scanner -Dsonar.organization=<org>
+```
+
+O serviço `sonarqube` foi removido do `docker-compose.yml`: a análise roda só
+no SonarQube Cloud.
+
 ---
 
 ## Vídeo demonstrativo
@@ -551,3 +593,4 @@ aplicação, execução do CI/CD, consumo das APIs e escalabilidade automática.
 | `yarn build` | Compila para `dist/` |
 | `yarn test` / `yarn test:cov` | Testes unitários / com cobertura |
 | `yarn test:e2e` | Testes end-to-end |
+| `yarn lint` / `yarn lint:ci` | ESLint com correções automáticas / modo CI (sem `--fix`, `--max-warnings=0`) |
