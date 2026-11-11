@@ -23,6 +23,7 @@
 # Uso:
 #   export BASE_URL=https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod
 #   export STAFF_EMAIL=... STAFF_PASSWORD=...
+#   export WEBHOOK_SECRET=...   # aprova a OS pelo webhook (orçamento vive no Billing)
 #   ./scripts/preparar-demo.sh semear
 set -uo pipefail
 
@@ -33,6 +34,7 @@ FASE="${1:-}"
 BASE_URL="${BASE_URL:?defina BASE_URL com o endpoint do stage}"
 STAFF_EMAIL="${STAFF_EMAIL:?defina STAFF_EMAIL}"
 STAFF_PASSWORD="${STAFF_PASSWORD:?defina STAFF_PASSWORD}"
+WEBHOOK_SECRET="${WEBHOOK_SECRET:?defina WEBHOOK_SECRET}"
 
 CLIENTE_ID="${CLIENTE_ID:-11111111-1111-4111-8111-111111111111}"
 VEICULO_ID="${VEICULO_ID:-aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa}"
@@ -46,6 +48,13 @@ json() { python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))" 2
 TOKEN=$(curl -s -X POST "$BASE_URL/auth/login" -H 'content-type: application/json' \
   -d "{\"email\":\"$STAFF_EMAIL\",\"password\":\"$STAFF_PASSWORD\"}" | json accessToken)
 [ -z "$TOKEN" ] && { echo "!! login de staff falhou"; exit 1; }
+
+# Aprovação do cliente: chega por webhook autenticado com o segredo.
+aprovar() {
+  curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/os/webhook/notificacao" \
+    -H 'content-type: application/json' -H "authorization: Bearer $WEBHOOK_SECRET" \
+    -d "{\"osId\":\"$1\",\"acao\":\"APROVAR\"}"
+}
 
 patch() { curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE_URL$1" -H "authorization: Bearer $TOKEN"; }
 
@@ -75,8 +84,7 @@ if [ "$FASE" = "semear" ]; then
         APROVADA)
           patch "/os/$OS/iniciar-diagnostico" >/dev/null
           patch "/os/$OS/concluir-diagnostico" >/dev/null
-          ORC=$(curl -s "$BASE_URL/orcamentos/by-os/$OS" -H "authorization: Bearer $TOKEN" | json id)
-          [ -n "$ORC" ] && patch "/orcamentos/$ORC/aprovar" >/dev/null ;;
+          aprovar "$OS" >/dev/null ;;
       esac
 
       echo "$OS:$parada" >> "$ESTADO"
@@ -101,8 +109,7 @@ else
       EM_DIAGNOSTICO)
         printf '  %s  EM_DIAGNOSTICO → AGUARDANDO_APROVACAO  %s\n' "$OS" "$(patch "/os/$OS/concluir-diagnostico")" ;;
       AGUARDANDO_APROVACAO)
-        ORC=$(curl -s "$BASE_URL/orcamentos/by-os/$OS" -H "authorization: Bearer $TOKEN" | json id)
-        printf '  %s  AGUARDANDO_APROVACAO → APROVADA  %s\n' "$OS" "$([ -n "$ORC" ] && patch "/orcamentos/$ORC/aprovar" || echo 'sem orçamento')" ;;
+        printf '  %s  AGUARDANDO_APROVACAO → APROVADA  %s\n' "$OS" "$(aprovar "$OS")" ;;
       APROVADA)
         printf '  %s  APROVADA → EM_EXECUCAO  %s\n' "$OS" "$(patch "/os/$OS/iniciar-execucao")" ;;
     esac
