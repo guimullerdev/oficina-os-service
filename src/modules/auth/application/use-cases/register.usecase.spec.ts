@@ -1,5 +1,4 @@
 import { ConflictException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
 import { RegisterUseCase } from './register.usecase';
 import { User } from '../../domain/entities/user.entity';
 import type { UserRepository } from '../../domain/repositories/user.repository.interface';

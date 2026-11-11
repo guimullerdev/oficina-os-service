@@ -33,11 +33,6 @@ import { OsStatusMetrics } from '../application/os-status-metrics.service';
 import { AuthenticatedActor } from '../../auth/decorators/current-user.decorator';
 import { CLIENTE_ROLE, UserRole } from '../../auth/domain/enums/user-role.enum';
 
-const uc = (val: any = { id: 'os-1' }) => ({
-  execute: jest.fn().mockResolvedValue(val),
-  executeAll: jest.fn().mockResolvedValue([val]),
-});
-
 const STAFF: AuthenticatedActor = {
   sub: 'user-1',
   role: UserRole.ATENDENTE,

@@ -144,7 +144,7 @@ describe('HttpExceptionFilter', () => {
 
     filter.catch(exception, host);
 
-    const body = res._json.mock.calls[0][0] as any;
+    const body = res._json.mock.calls[0][0];
     expect(body.message).toBeDefined();
     expect(body.error).toBe('Custom Error');
   });
@@ -157,7 +157,7 @@ describe('HttpExceptionFilter', () => {
     filter.catch(exception, host);
 
     expect(res.status).toHaveBeenCalledWith(999);
-    const body = res._json.mock.calls[0][0] as any;
+    const body = res._json.mock.calls[0][0];
     expect(body.error).toBe('Unknown');
   });
 
@@ -232,7 +232,7 @@ describe('HttpExceptionFilter', () => {
 
       filtroComLogger.catch(new Error('timeout no banco'), host);
 
-      const campos = logger.error.mock.calls[0][0] as any;
+      const campos = logger.error.mock.calls[0][0];
       expect(campos.exception.message).toBe('timeout no banco');
       expect(campos.exception.stack).toEqual(expect.any(String));
     });

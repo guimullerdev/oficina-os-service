@@ -1,8 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
-const makeContext = (authHeader?: string, isPublic = false) => ({
+const makeContext = (authHeader?: string) => ({
   getHandler: jest.fn(),
   getClass: jest.fn(),
   switchToHttp: () => ({
@@ -37,7 +36,7 @@ describe('JwtAuthGuard', () => {
       mockConfig() as any,
     );
 
-    const result = await guard.canActivate(makeContext(undefined, true) as any);
+    const result = await guard.canActivate(makeContext(undefined) as any);
 
     expect(result).toBe(true);
     expect(jwt.verifyAsync).not.toHaveBeenCalled();
