@@ -545,9 +545,14 @@ do Jest. A organização vem da variável de repositório `SONAR_ORGANIZATION` e
 o token de autenticação vem do secret `SONAR_TOKEN`. Sem o secret (por
 exemplo, em PR de fork), o step do Sonar é pulado.
 
-**Quality Gate.** Por ora o gate é informativo e não bloqueia o PR. Na
-sequência (Fase 9 T8) ele passa a bloquear o PR se a cobertura em código novo
-for menor que 80% ou se houver issue de severidade *blocker*.
+**Quality Gate.** O gate é bloqueante: o scan roda com
+`sonar.qualitygate.wait=true`, então o job `build-and-test` falha se o gate
+reprovar. O projeto usa o gate padrão *Sonar way*, que reprova o PR se a
+cobertura em código novo for menor que 80%, se a duplicação em código novo
+passar de 3%, se algum rating (segurança, confiabilidade, manutenibilidade) do
+código novo cair abaixo de A — o que inclui qualquer issue *blocker* — ou se
+houver security hotspot não revisado. As condições de cobertura e duplicação
+só valem quando o PR tem 20 linhas novas ou mais.
 
 **Setup (uma vez, manual):**
 
