@@ -53,13 +53,17 @@ jobs:
       - run: yarn test:cov
 
       # Pula (sem falhar) em forks ou quando o secret SONAR_TOKEN não existe.
-      # O quality gate ainda NÃO bloqueia (sem sonar.qualitygate.wait); passa
-      # a ser blocking na Fase 9 T8.
+      # Quality gate bloqueante: qualitygate.wait faz o scanner esperar o
+      # resultado do gate e falhar o step (e o job) se ele reprovar. O
+      # timeout evita prender o runner se o SonarQube Cloud demorar.
       - name: SonarQube Cloud scan
         if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@v8
         with:
-          args: -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+          args: >
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
 
   # --- BDD: saga ponta a ponta contra o stack docker-compose.bdd.yml --------
   # Sem filtro de paths: roda em todo PR e push, em paralelo ao build-and-test.
