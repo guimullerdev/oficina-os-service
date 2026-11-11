@@ -37,8 +37,10 @@ export class AddPecaToOsUseCase {
         valorUnitario: precoUnitario,
         status: 'reservada',
       });
-    } catch (err: any) {
-      throw new ConflictException(err.message);
+    } catch (err) {
+      throw new ConflictException(
+        err instanceof Error ? err.message : String(err),
+      );
     }
 
     return this.osRepo.update(updated);

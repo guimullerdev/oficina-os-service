@@ -2,7 +2,7 @@ import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { LoginDto } from '../dto/login.dto';
 import { AuthResponseDto } from '../dto/auth-response.dto';
 import { UserRole } from '../../domain/enums/user-role.enum';
@@ -41,16 +41,14 @@ export class LoginUseCase {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('JWT_SECRET'),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         expiresIn: (this.configService.get<string>('JWT_EXPIRES_IN') ??
-          '1h') as any,
+          '1h') as JwtSignOptions['expiresIn'],
       }),
       this.jwtService.signAsync(payload, {
         secret:
           this.configService.get<string>('JWT_REFRESH_SECRET') ??
           this.configService.get<string>('JWT_SECRET') + '_refresh',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        expiresIn: '7d' as any,
+        expiresIn: '7d',
       }),
     ]);
     return { accessToken, refreshToken };

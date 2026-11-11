@@ -1,9 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import {
   ORDEM_DE_SERVICO_REPOSITORY,
@@ -31,8 +26,10 @@ export class RealizarServicoUseCase {
     let updated: OrdemDeServico;
     try {
       updated = os.registrarExecucaoServico(itemId, inicio, fim);
-    } catch (err: any) {
-      throw new NotFoundException(err.message);
+    } catch (err) {
+      throw new NotFoundException(
+        err instanceof Error ? err.message : String(err),
+      );
     }
 
     return this.repo.update(updated);

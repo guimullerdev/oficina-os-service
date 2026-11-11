@@ -29,7 +29,7 @@ export class ClientePrismaRepository implements IClienteRepository {
       where: { nome: { contains: nome, mode: 'insensitive' } },
       orderBy: { nome: 'asc' },
     });
-    return raws.map(ClienteMapper.toDomain);
+    return raws.map((raw) => ClienteMapper.toDomain(raw));
   }
 
   async findAll(filters?: { ativo?: boolean }): Promise<Cliente[]> {
@@ -38,7 +38,7 @@ export class ClientePrismaRepository implements IClienteRepository {
         filters?.ativo !== undefined ? { ativo: filters.ativo } : undefined,
       orderBy: { nome: 'asc' },
     });
-    return raws.map(ClienteMapper.toDomain);
+    return raws.map((raw) => ClienteMapper.toDomain(raw));
   }
 
   async create(cliente: Cliente): Promise<Cliente> {

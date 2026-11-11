@@ -27,7 +27,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const status =
+    const status: number =
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -53,7 +53,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // Só 5xx vira log de erro: 4xx é o cliente errando (CPF inválido,
     // validação), não falha do sistema — alertar nisso geraria ruído
     // constante e o alerta acabaria sendo ignorado.
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (status >= (HttpStatus.INTERNAL_SERVER_ERROR as number)) {
       this.logarFalha(request, status, exception);
     }
 
