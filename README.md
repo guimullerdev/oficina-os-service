@@ -39,17 +39,42 @@ ADR 0006). Há um único ambiente, `prod` (ver ADR 0009).
 - **Healthcheck**: https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod/health
 - **Dashboard de observabilidade**: https://onenr.io/0qwykVVv1jn
 
-Exemplo de ponta a ponta — CPF vira JWT, JWT abre as rotas do cliente:
+> **Deploy não verificado ao vivo em 2026-11-11.** Nessa data a URL acima
+> respondeu `403` em `/health` e em `/api` (cluster e stage fora do ar). Os
+> comandos abaixo refletem o fluxo atual, mas não foram executados contra o
+> deploy. Os mesmos `curl` funcionam localmente contra o `docker compose`
+> (ver [Execução local](#execução-local-docker-compose)) com
+> `BASE=http://localhost:3000`, **exceto `/auth/cpf`**, que só existe atrás do
+> API Gateway (servido pelo `oficina-auth-lambda`).
+
+Exemplo de ponta a ponta — CPF vira JWT do cliente, o staff abre uma OS e lê a
+saga dela:
 
 ```bash
 BASE=https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod
+# local: BASE=http://localhost:3000
 
-TOKEN=$(curl -s -X POST "$BASE/auth/cpf" \
+# 1. Cliente: CPF -> JWT (só atrás do gateway, via oficina-auth-lambda)
+TOKEN_CLIENTE=$(curl -s -X POST "$BASE/auth/cpf" \
   -H 'content-type: application/json' \
   -d '{"cpf":"69759054876"}' | jq -r .accessToken)
+curl -s "$BASE/os/me" -H "authorization: Bearer $TOKEN_CLIENTE"
 
-curl -s "$BASE/os/me" -H "authorization: Bearer $TOKEN"
+# 2. Staff: email + senha -> JWT, e abertura da OS
+TOKEN_STAFF=$(curl -s -X POST "$BASE/auth/login" \
+  -H 'content-type: application/json' \
+  -d '{"email":"atendente@oficina.com","password":"<senha>"}' | jq -r .accessToken)
+OS_ID=$(curl -s -X POST "$BASE/os" \
+  -H "authorization: Bearer $TOKEN_STAFF" \
+  -H 'content-type: application/json' \
+  -d '{"clienteId":"<uuid>","veiculoId":"<uuid>"}' | jq -r .id)
+
+# 3. Saga da OS (rota de staff)
+curl -s "$BASE/os/$OS_ID/saga" -H "authorization: Bearer $TOKEN_STAFF"
 ```
+
+Os corpos de `/auth/login` e `POST /os` acima são ilustrativos; o formato exato
+está em [`manual-test.http`](manual-test.http) e no Swagger.
 
 > Infraestrutura de curso, provisionada para a avaliação e destruída depois.
 > Se os endpoints não responderem, é porque o `terraform destroy` já rodou —
@@ -397,9 +422,26 @@ oficina-os-service-secret` (ver o formato em `k8s/secret.example.yaml`).
 
 ---
 
+## Swagger
+
+- **Local:** `http://localhost:3000/api` (porta `PORT`, padrão `3000`; path `/api`
+  definido em `src/main.ts`), com a aplicação rodando.
+- **Deploy:** `<stage do API Gateway>/api` — hoje
+  `https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod/api` (ver
+  [Deploy ativo](#deploy-ativo) sobre a verificação).
+
+Para chamar rotas protegidas, clique em **Authorize** e cole o JWT (esquema
+Bearer). O token vem de:
+
+- `POST /auth/login` (email + senha) — staff, na própria aplicação; ou
+- `POST /auth/cpf` — cliente, servido pela `oficina-auth-lambda` atrás do API
+  Gateway (não existe na aplicação local).
+
+---
+
 ## APIs
 
-- **Swagger / OpenAPI:** `http://localhost:3000/api` (com a aplicação rodando).
+- **Swagger / OpenAPI:** ver a seção [Swagger](#swagger).
 - Coleção de exemplos de requisições: [`manual-test.http`](manual-test.http).
 
 Destaques da Fase 2:
@@ -412,6 +454,51 @@ Destaques da Fase 2:
 - `POST /os/webhook/notificacao` — webhook externo que aprova/reprova uma OS em
   `AGUARDANDO_APROVACAO` e devolve o `statusAtual` pós-ação (autenticado por
   `WEBHOOK_SECRET`).
+
+- `GET /os/:id/saga` — estado da saga da OS (ver abaixo).
+
+### `GET /os/:id/saga`
+
+Devolve a instância da saga da OS e seus passos, ordenados por `ordem`. Exige
+token de **staff** (`ADMIN`, `ATENDENTE` ou `MECANICO`); `CLIENTE` recebe `403`.
+
+```json
+{
+  "id": "5c1f0b0e-6a43-4d52-9d0e-2f6a3b8c1a10",
+  "osId": "0b9f6a52-3c1d-4a8e-8f43-9d2e7a1c5b64",
+  "tipo": "ORDEM_DE_SERVICO",
+  "status": "EM_ANDAMENTO",
+  "correlationId": "d4a1e6c2-7b35-4f0a-9c18-2e5b6a7f8d90",
+  "iniciadaEm": "2026-11-11T12:00:00.000Z",
+  "finalizadaEm": null,
+  "passos": [
+    {
+      "ordem": 1, "nome": "ABRIR_OS", "status": "CONCLUIDO",
+      "comando": null, "eventoEsperado": null,
+      "expiraEm": null, "tentativas": 1, "erro": null
+    },
+    {
+      "ordem": 2, "nome": "GERAR_ORCAMENTO", "status": "EM_ANDAMENTO",
+      "comando": "<comando>", "eventoEsperado": "<evento>",
+      "expiraEm": "2026-11-11T12:05:00.000Z", "tentativas": 1, "erro": null
+    }
+  ]
+}
+```
+
+O `status` da saga é `EM_ANDAMENTO`, `CONCLUIDA`, `COMPENSADA`, `PENDENTE` ou
+`FALHOU`; o de cada passo é `PENDENTE`, `EM_ANDAMENTO`, `CONCLUIDO`, `FALHOU`,
+`COMPENSADO` ou `EXPIRADO`. Os passos seguem `ABRIR_OS`, `GERAR_ORCAMENTO`,
+`APROVAR_ORCAMENTO`, `EXECUTAR`, `COBRAR` e `CONFIRMAR`. O corpo real é o
+registro do Prisma com os passos incluídos, então cada passo traz também os
+campos internos `id` e `sagaId` (omitidos acima); `comando` e `eventoEsperado`
+são ilustrativos.
+
+**`404`** quando a OS não tem saga:
+
+```json
+{ "statusCode": 404, "message": "Saga da ordem de serviço <id> não encontrada", "error": "Not Found" }
+```
 
 ### Autenticação: dois fluxos, dois atores
 
@@ -477,6 +564,7 @@ perfil específico, por exemplo:
 | `PATCH /os/:id/servicos/:itemId/realizar` | `MECANICO`, `ADMIN` |
 | `PATCH /os/:id/pecas/:itemId/utilizar` | `MECANICO`, `ADMIN` |
 | `GET /os` (listagem geral) | Qualquer perfil de staff |
+| `GET /os/:id/saga` | Qualquer perfil de staff (`ADMIN`, `ATENDENTE`, `MECANICO`) |
 
 ### Todas as rotas
 
@@ -498,10 +586,13 @@ perfil específico, por exemplo:
 | `DELETE` | `/veiculos/:id` | Remover veículo |
 | `POST` | `/os` | Abrir ordem de serviço (itens inline exigem `precoUnitario`) |
 | `GET`  | `/os` | Listar OS (priorizada, exclui arquivadas) |
+| `GET`  | `/os/me` | OS do cliente autenticado (`CLIENTE`) |
 | `GET`  | `/os/consulta` | Consulta pública da OS |
+| `GET`  | `/os/metricas/tempo-medio` | Tempo médio de execução de OS finalizadas (`dataInicio`/`dataFim` opcionais) |
 | `GET`  | `/os/:id` | Buscar OS por ID |
 | `GET`  | `/os/:id/status` | Consultar status da OS |
 | `GET`  | `/os/:id/acompanhamento` | Acompanhamento da OS |
+| `GET`  | `/os/:id/saga` | Saga da OS e seus passos (staff) |
 | `POST` | `/os/webhook/notificacao` | Webhook externo — aprova/reprova a OS e devolve `statusAtual` |
 | `POST` | `/os/:id/servicos` | Adicionar serviço à OS (`{ servicoId, precoUnitario }`) |
 | `DELETE` | `/os/:id/servicos/:itemId` | Remover serviço da OS |
@@ -687,6 +778,46 @@ SONAR_TOKEN=... npx sonarqube-scanner -Dsonar.organization=<org>
 
 O serviço `sonarqube` foi removido do `docker-compose.yml`: a análise roda só
 no SonarQube Cloud.
+
+---
+
+## Débitos declarados
+
+Pendências conhecidas, com impacto e onde seriam corrigidas.
+
+- **OIDC não feito.** O CI autentica na AWS com `secrets.AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` estáticos ([`ci-cd.yml`](.github/workflows/ci-cd.yml)),
+  não com GitHub OIDC assumindo uma IAM role. Impacto: credencial de longa vida
+  guardada no GitHub. Correção: OIDC → IAM role no workflow e no repo de
+  infraestrutura.
+- **Ambiente único.** Existe só `prod` ([ADR 0009](docs/adr/0009-ambiente-unico.md));
+  `develop` roda apenas build-and-test, sem deploy. Impacto: a mudança chega à
+  produção sem estágio intermediário. Correção: reabrir a ADR 0009 e criar um
+  segundo ambiente.
+- **`oficina-auth-lambda` lê a tabela `clientes` direto no RDS** (um `SELECT
+  documento, ativo FROM clientes`, somente leitura). É acoplamento por banco
+  compartilhado atravessando a fronteira de serviço
+  ([ADR 0008](docs/adr/0008-um-rds-dois-bancos-logicos.md)). O secret
+  `DATABASE_URL_PROD` dele ainda aponta para `oficina_prod` e precisa ser
+  reapontado para `oficina_os`, sob pena de a autenticação por CPF parar. A
+  correção de fundo, no `oficina-auth-lambda`, é um endpoint interno do OS
+  Service ou um read model replicado.
+- **Deploy ao vivo não verificado.** Em 2026-11-11 o gateway respondeu `403`
+  (ver [Deploy ativo](#deploy-ativo)). Correção: subir cluster e stage
+  (`oficina-infra-k8s`, `oficina-infra-db`) e reexecutar os `curl`.
+- **Terraform da mensageria não aplicado.** O [`terraform/`](terraform/README.md)
+  (filas `oficina-os-queue` / `oficina-os-dlq` e subscriptions) é validado no CI
+  (`fmt` e `validate`), mas `plan`/`apply` exigem credenciais e o root
+  `mensageria/` compartilhado do `oficina-infra-k8s`. O consumidor SQS segue
+  desligado em produção (`SQS_CONSUMER_ENABLED: "false"` em
+  [`k8s/configmap.yaml`](k8s/configmap.yaml)). Impacto: em produção o serviço
+  não consome eventos dos outros serviços.
+- **O caminho feliz orientado a eventos não move o status da OS.** A saga só
+  altera a OS nas compensações; o avanço de status acontece pelos endpoints
+  REST. Correção: no orquestrador, gravar o status também nas transições.
+- **Payloads dos comandos da saga não alinhados com Billing e Execução.** Não há
+  contraparte real; o contrato foi validado só contra LocalStack e o cenário
+  BDD. Correção: fechar o contrato com os repos de Billing e Execução.
 
 ---
 
