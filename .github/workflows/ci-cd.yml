@@ -29,8 +29,16 @@ jobs:
   # --- Build da aplicação + testes automatizados ----------------------------
   build-and-test:
     runs-on: ubuntu-latest
+    # O token fica no env do job porque o `if` de step não lê `secrets`
+    # diretamente; assim o scan pode ser pulado quando o secret não existe.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      # fetch-depth: 0 — o Sonar precisa do histórico completo para calcular
+      # new code e blame.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -38,10 +46,20 @@ jobs:
 
       - run: corepack enable && corepack prepare yarn@1.22.22 --activate
       - run: yarn install --frozen-lockfile
+      - run: yarn lint:ci
       - run: yarn build
       # test:cov aplica o threshold de cobertura (coverageThreshold do
       # package.json); a pipeline falha se regredir.
       - run: yarn test:cov
+
+      # Pula (sem falhar) em forks ou quando o secret SONAR_TOKEN não existe.
+      # O quality gate ainda NÃO bloqueia (sem sonar.qualitygate.wait); passa
+      # a ser blocking na Fase 9 T8.
+      - name: SonarQube Cloud scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          args: -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
 
   # --- BDD: saga ponta a ponta contra o stack docker-compose.bdd.yml --------
   # Sem filtro de paths: roda em todo PR e push, em paralelo ao build-and-test.
