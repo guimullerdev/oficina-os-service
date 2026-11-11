@@ -7,11 +7,14 @@
 # Uso:
 #   export BASE_URL=https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod
 #   export STAFF_EMAIL=... STAFF_PASSWORD=...
+#   export WEBHOOK_SECRET=...   # mesmo valor do serviço; aprova a OS pelo webhook
 #   ./scripts/gerar-trafego.sh [ciclos]
 #
 # Sem STAFF_EMAIL/STAFF_PASSWORD o script roda assim mesmo, só pulando o que
 # exige staff (abertura de OS e transições de status). Útil para aquecer
-# latência e códigos HTTP sem precisar de credencial.
+# latência e códigos HTTP sem precisar de credencial. Sem WEBHOOK_SECRET a OS
+# não é aprovada (o orçamento vive no serviço de Billing; a aprovação chega
+# aqui pelo webhook) e o ciclo para em AGUARDANDO_APROVACAO.
 #
 # A senha nunca aparece em argumento de linha de comando — vem por variável
 # de ambiente, para não ficar visível em `ps` nem no histórico do shell.
@@ -19,6 +22,7 @@ set -uo pipefail
 
 BASE_URL="${BASE_URL:?defina BASE_URL com o endpoint do stage}"
 CICLOS="${1:-20}"
+WEBHOOK_SECRET="${WEBHOOK_SECRET:-}"
 CPF_ATIVO="${CPF_ATIVO:-69759054876}"
 CPF_INATIVO="${CPF_INATIVO:-38405253149}"
 CPF_INEXISTENTE="${CPF_INEXISTENTE:-11144477735}"
@@ -102,20 +106,19 @@ for i in $(seq 1 "$CICLOS"); do
       printf 'conclui=%s  ' "$(chamar PATCH "/os/$OS_NOVA/concluir-diagnostico" "$TOKEN_STAFF")"
       sleep 2
 
-      # Concluir o diagnóstico gera o orçamento e deixa a OS em
-      # AGUARDANDO_APROVACAO. Sem aprovar, `iniciar-execucao` responde 422 —
-      # é o domínio recusando pular a aprovação do cliente, não um erro.
-      ORCAMENTO=$(curl -s "$BASE_URL/orcamentos/by-os/$OS_NOVA" \
-        -H "authorization: Bearer $TOKEN_STAFF" | json id)
-
-      if [ -n "$ORCAMENTO" ]; then
-        printf 'aprova=%s  ' "$(chamar PATCH "/orcamentos/$ORCAMENTO/aprovar" "$TOKEN_STAFF")"
+      # Concluir o diagnóstico deixa a OS em AGUARDANDO_APROVACAO. O orçamento
+      # vive no Billing; a aprovação chega aqui pelo webhook. Sem aprovar,
+      # `iniciar-execucao` responde 422 — é o domínio recusando pular a
+      # aprovação do cliente, não um erro.
+      if [ -n "$WEBHOOK_SECRET" ]; then
+        printf 'aprova=%s  ' "$(chamar POST /os/webhook/notificacao "$WEBHOOK_SECRET" \
+          "{\"osId\":\"$OS_NOVA\",\"acao\":\"APROVAR\"}")"
         sleep 2
         printf 'execucao=%s  ' "$(chamar PATCH "/os/$OS_NOVA/iniciar-execucao" "$TOKEN_STAFF")"
         sleep 2
         printf 'finaliza=%s\n' "$(chamar PATCH "/os/$OS_NOVA/finalizar-execucao" "$TOKEN_STAFF")"
       else
-        printf 'sem orçamento — pulando execução\n'
+        printf 'sem WEBHOOK_SECRET — pulando aprovação e execução\n'
       fi
     else
       echo "  !! abertura de OS não retornou id"
