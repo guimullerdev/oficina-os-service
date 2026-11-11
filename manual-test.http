@@ -1,14 +1,14 @@
 # ===========================================================================
-# Manual Test — Fluxo completo da OS (escopo da Fase 2)
+# Manual Test — Fluxo completo da OS (microsserviço de OS, Fase 4)
 # Compatible with VS Code REST Client extension (ms-dotnettools.vscode-restclient)
 #
-# Escopo: service-orders, customers, vehicles, auth.
+# Escopo atual: OS, clientes, veículos, auth e saga da OS.
 # servicoId / pecaId são referências fracas (não validadas contra catálogo);
-# o preço vem em precoUnitario. Orçamento e estoque NÃO existem nesta fase.
+# o preço vem em precoUnitario. Orçamento e inventário NÃO fazem parte deste escopo.
 #
 # HOW TO USE:
 #   1. Install "REST Client" extension in VS Code
-#   2. Start the app:  docker compose -f docker-compose.dev.yml up -d && yarn start:dev
+#   2. Start the app:  docker compose -f docker-compose.yml up -d && yarn start:dev
 #   3. Run each request in order — copy IDs returned in responses into the
 #      @variables below before proceeding to the next section.
 # ===========================================================================
@@ -71,7 +71,7 @@ Authorization: Bearer {{token}}
 
 {
   "nome": "João da Silva",
-  "cpf": "12345678901",
+  "documento": "12345678901",
   "email": "joao@email.com",
   "telefone": "11999990000"
 }
@@ -271,7 +271,7 @@ Authorization: Bearer {{token}}
 ###
 
 ### 6c. Concluir diagnóstico (EM_DIAGNOSTICO → AGUARDANDO_APROVACAO)
-#        Só muda o status. Não gera orçamento (gap funcional deliberado da Fase 2).
+#        Só muda o status. Não gera orçamento (fora do escopo atual).
 PATCH {{baseUrl}}/os/{{osId}}/concluir-diagnostico
 Authorization: Bearer {{token}}
 
