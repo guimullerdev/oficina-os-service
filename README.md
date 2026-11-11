@@ -250,6 +250,39 @@ um aviso e não publica nada no cluster.
 
 ---
 
+## Cobertura de testes
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=guimullerdev_oficina-os-service&metric=alert_status)](https://sonarcloud.io/project/overview?id=guimullerdev_oficina-os-service)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=guimullerdev_oficina-os-service&metric=coverage)](https://sonarcloud.io/project/overview?id=guimullerdev_oficina-os-service)
+
+Números de uma execução real de `yarn test:cov` na `main` (commit `7ad20b8`),
+em 2026-11-11. São valores datados: mudam a cada alteração de código ou testes.
+
+| Métrica | Medido (Jest) | Threshold do Jest (`package.json`) | Mínimo do PDF |
+|---|---|---|---|
+| Statements | 96.11% | 90% | 80% |
+| Branches | 85.8% | 79% | 80% |
+| Functions | 95.47% | 90% | 80% |
+| Lines | 96.11% | 90% | 80% |
+
+Resultado: 661 testes em 58 suítes, todos passando.
+
+**SonarQube Cloud.** Projeto público
+[`guimullerdev_oficina-os-service`](https://sonarcloud.io/project/overview?id=guimullerdev_oficina-os-service):
+cobertura de 94.5% sobre 6.280 linhas e Quality Gate *OK*. A diferença para o
+Jest é esperada: o Sonar calcula a cobertura no próprio escopo, a partir de
+`sonar.sources`, `sonar.exclusions` e do relatório lcov, e não do
+`collectCoverageFrom` do Jest.
+
+O Quality Gate bloqueia PRs: o scan roda com `sonar.qualitygate.wait=true` e o
+gate *Sonar way* exige cobertura em código novo de pelo menos 80%. Detalhes na
+seção [Qualidade de código (lint e SonarQube Cloud)](#qualidade-de-código-lint-e-sonarqube-cloud).
+
+**Como reproduzir.** Rode `yarn test:cov`. O relatório HTML fica em
+`coverage/lcov-report/index.html`.
+
+---
+
 ## Execução local (Docker Compose)
 
 ```bash
