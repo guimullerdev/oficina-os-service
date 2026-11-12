@@ -81,3 +81,6 @@ docs/plano-fase*.md
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Planos do Terraform podem conter valores sensíveis
+*.tfplan

@@ -77,5 +77,13 @@ A saída deve conter `maxReceiveCount` com valor `3` (ou o valor de `max_receive
 
 - **Key do backend exclusiva:** `os-service/terraform.tfstate` é o state deste root. Não reutilize essa key em outro root nem em outro repo.
 - **Paridade com LocalStack:** as filas, a policy, a redrive policy, os filtros e a visibility timeout devem ser mantidos iguais em `scripts/localstack/init-sns.sh`. Mudar um exige mudar o outro.
-- **Sem IRSA por enquanto:** a policy `messaging_policy_arn` não está anexada a nenhuma role (o EKS ainda não voltou). Anexá-la fica para depois.
+- **Sem IRSA: chave estática.** A policy `messaging_policy_arn` está anexada ao usuário `oficina-os-service` (`service_user_name`), que só publica em `oficina-os-events` e consome a fila. A chave de acesso não é criada pelo Terraform, para o segredo não ir ao state:
+
+  ```bash
+  aws iam create-access-key --user-name oficina-os-service --query AccessKey --output json \
+    | tee >(jq -r .AccessKeyId     | gh secret set POD_AWS_ACCESS_KEY_ID     --env prod --repo guimullerdev/oficina-os-service) \
+          >(jq -r .SecretAccessKey | gh secret set POD_AWS_SECRET_ACCESS_KEY --env prod --repo guimullerdev/oficina-os-service) >/dev/null
+  ```
+
+  O pipeline grava os dois no `Secret` do cluster como `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`. Não use as chaves de deploy do repositório no pod: têm `AdministratorAccess`. Rotação: criar a nova chave, atualizar os dois secrets, reexecutar o deploy e `aws iam delete-access-key` da antiga.
 - **Secret do cluster:** o output `queue_url` alimenta o secret `SQS_QUEUE_URL`.

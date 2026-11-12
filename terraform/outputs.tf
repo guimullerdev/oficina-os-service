@@ -32,3 +32,8 @@ output "execucao_subscription_arn" {
   description = "ARN da assinatura da fila no tópico de Execução"
   value       = aws_sns_topic_subscription.execucao.arn
 }
+
+output "service_user_name" {
+  description = "Usuário IAM do pod (só a policy de mensageria); a chave de acesso é criada fora do Terraform"
+  value       = aws_iam_user.service.name
+}
