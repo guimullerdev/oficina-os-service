@@ -384,7 +384,8 @@ secrets lidos pelo pipeline são:
 | `NEW_RELIC_LICENSE_KEY` | Envio de telemetria ao New Relic |
 | `SNS_TOPIC_ARN` | Tópico SNS que recebe os eventos do outbox |
 | `SQS_QUEUE_URL` | Fila SQS consumida pela aplicação |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciais AWS (`configure-aws-credentials`) |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciais AWS do deploy (`configure-aws-credentials`) |
+| `POD_AWS_ACCESS_KEY_ID`, `POD_AWS_SECRET_ACCESS_KEY` | Chave do usuário IAM `oficina-os-service` (só mensageria); vai para o `Secret` do pod |
 | `AWS_SESSION_TOKEN` | Opcional; só para credencial temporária (AWS Academy Learner Lab) |
 
 ### Manifestos (`k8s/`)
@@ -785,6 +786,11 @@ no SonarQube Cloud.
 
 Pendências conhecidas, com impacto e onde seriam corrigidas.
 
+- **Credencial AWS do pod é chave estática.** O pod usa a chave de um usuário
+  IAM restrito à policy de mensageria (`oficina-os-service`), guardada no GitHub
+  e no `Secret` do cluster, em vez de IRSA. Impacto: credencial de longa vida,
+  rotação manual. Correção: IRSA (OIDC provider do EKS, role com a mesma policy
+  e anotação no ServiceAccount).
 - **OIDC não feito.** O CI autentica na AWS com `secrets.AWS_ACCESS_KEY_ID` /
   `AWS_SECRET_ACCESS_KEY` estáticos ([`ci-cd.yml`](.github/workflows/ci-cd.yml)),
   não com GitHub OIDC assumindo uma IAM role. Impacto: credencial de longa vida

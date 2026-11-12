@@ -91,7 +91,7 @@ resource "aws_sns_topic_subscription" "execucao" {
   depends_on = [aws_sqs_queue_policy.main]
 }
 
-# Policy IAM avulsa (sem role IRSA; será anexada depois): publica em os-events e consome a fila.
+# Policy IAM de mensageria: publica em os-events e consome a fila do os-service.
 data "aws_iam_policy_document" "messaging" {
   statement {
     sid       = "PublishOsEvents"
@@ -117,4 +117,18 @@ resource "aws_iam_policy" "messaging" {
   name        = "oficina-os-service-messaging"
   description = "Publicar em oficina-os-events e consumir a fila do os-service"
   policy      = data.aws_iam_policy_document.messaging.json
+}
+
+# Credencial do pod. Sem IRSA (o cluster é recriado a cada janela), o pod usa a
+# chave estática de um usuário que só tem a policy acima: publicar em
+# oficina-os-events e consumir a fila. A chave NÃO é criada aqui, para o segredo
+# não ir parar no state: `aws iam create-access-key` e `gh secret set`
+# (POD_AWS_ACCESS_KEY_ID / POD_AWS_SECRET_ACCESS_KEY), ver o README deste root.
+resource "aws_iam_user" "service" {
+  name = "oficina-os-service"
+}
+
+resource "aws_iam_user_policy_attachment" "service_messaging" {
+  user       = aws_iam_user.service.name
+  policy_arn = aws_iam_policy.messaging.arn
 }

@@ -228,7 +228,20 @@ jobs:
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
           SNS_TOPIC_ARN: ${{ secrets.SNS_TOPIC_ARN }}
           SQS_QUEUE_URL: ${{ secrets.SQS_QUEUE_URL }}
+          # Chave do usuário IAM do pod (só mensageria). NÃO são as chaves de
+          # deploy do repositório, que têm AdministratorAccess.
+          POD_AWS_ACCESS_KEY_ID: ${{ secrets.POD_AWS_ACCESS_KEY_ID }}
+          POD_AWS_SECRET_ACCESS_KEY: ${{ secrets.POD_AWS_SECRET_ACCESS_KEY }}
         run: |
+          # Sem a chave, o pod cairia na cadeia padrão do SDK e o publisher
+          # falharia com AccessDenied: melhor avisar alto no deploy.
+          POD_AWS_ARGS=()
+          if [ -n "$POD_AWS_ACCESS_KEY_ID" ] && [ -n "$POD_AWS_SECRET_ACCESS_KEY" ]; then
+            POD_AWS_ARGS+=(--from-literal=AWS_ACCESS_KEY_ID="$POD_AWS_ACCESS_KEY_ID")
+            POD_AWS_ARGS+=(--from-literal=AWS_SECRET_ACCESS_KEY="$POD_AWS_SECRET_ACCESS_KEY")
+          else
+            echo "::warning::POD_AWS_ACCESS_KEY_ID/POD_AWS_SECRET_ACCESS_KEY ausentes: o pod não terá credencial AWS (publisher do outbox falhará)."
+          fi
           kubectl create secret generic oficina-os-service-secret \
             --namespace "$NAMESPACE" \
             --from-literal=DATABASE_URL="$DATABASE_URL" \
@@ -238,6 +251,7 @@ jobs:
             --from-literal=SNS_TOPIC_ARN="$SNS_TOPIC_ARN" \
             --from-literal=SQS_QUEUE_URL="$SQS_QUEUE_URL" \
             --from-literal=NEW_RELIC_ENABLED="true" \
+            "${POD_AWS_ARGS[@]}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Aplicar ConfigMap e Service
