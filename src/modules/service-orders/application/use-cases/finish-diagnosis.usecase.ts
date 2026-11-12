@@ -43,12 +43,42 @@ export class FinishDiagnosisUseCase {
       throw err;
     }
 
+    const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const itens = [
+      ...updated.servicos.map((s) => ({
+        tipo: 'SERVICO' as const,
+        refId: s.servicoId,
+        descricao: s.descricao ?? `Serviço ${s.servicoId}`,
+        quantidade: 1,
+        precoUnitario: round2(s.precoUnitario),
+      })),
+      ...updated.pecas.map((p) => ({
+        tipo: 'PECA' as const,
+        refId: p.pecaId,
+        descricao: `Peça ${p.pecaId}`,
+        quantidade: p.quantidade,
+        precoUnitario: round2(p.valorUnitario),
+      })),
+    ];
+    const valorTotal = round2(
+      itens.reduce((acc, i) => acc + i.quantidade * i.precoUnitario, 0),
+    );
+    const sagaCorrelationId =
+      await this.sagaOrchestrator.obterCorrelationIdDaOs(updated.id);
+
     const evento: DomainEvent = {
       evento: 'diagnostico.concluido',
       aggregateType: 'ordem_de_servico',
       aggregateId: updated.id,
-      payload: { id: updated.id, status: updated.status },
-      correlationId: ctx?.correlationId ?? randomUUID(),
+      payload: {
+        id: updated.id,
+        osId: updated.id,
+        status: updated.status,
+        clienteId: updated.clienteId,
+        itens,
+        valorTotal,
+      },
+      correlationId: sagaCorrelationId ?? ctx?.correlationId ?? randomUUID(),
       traceparent: ctx?.traceparent,
     };
 

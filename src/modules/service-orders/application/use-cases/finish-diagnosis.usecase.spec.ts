@@ -19,6 +19,7 @@ const mockRepo = (): jest.Mocked<IOrdemDeServicoRepository> => ({
 
 const mockSaga = () => ({
   registrarDiagnosticoConcluido: jest.fn().mockResolvedValue(true),
+  obterCorrelationIdDaOs: jest.fn().mockResolvedValue(undefined),
 });
 
 const makeDiagnosingOrder = () =>
@@ -88,7 +89,14 @@ describe('FinishDiagnosisUseCase', () => {
         evento: 'diagnostico.concluido',
         aggregateType: 'ordem_de_servico',
         aggregateId: ordem.id,
-        payload: { id: ordem.id, status: StatusOS.AGUARDANDO_APROVACAO },
+        payload: {
+          id: ordem.id,
+          osId: ordem.id,
+          status: StatusOS.AGUARDANDO_APROVACAO,
+          clienteId: 'c-1',
+          itens: [],
+          valorTotal: 0,
+        },
         correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         traceparent: undefined,
       },
@@ -110,6 +118,71 @@ describe('FinishDiagnosisUseCase', () => {
     const [, events] = repo.update.mock.calls[0];
     expect(events![0].correlationId).toBe('corr-456');
     expect(events![0].traceparent).toBe(traceparent);
+  });
+
+  it('enriches payload with items, rounded total and the saga correlationId', async () => {
+    const repo = mockRepo();
+    const saga = mockSaga();
+    saga.obterCorrelationIdDaOs.mockResolvedValue('saga-corr-1');
+    const ordem = makeDiagnosingOrder()
+      .addServico({
+        id: 'is-1',
+        servicoId: 's-1',
+        descricao: 'Troca de óleo',
+        precoUnitario: 150.5,
+        status: 'pendente',
+      })
+      .addPeca({
+        id: 'ip-1',
+        pecaId: 'p-1',
+        quantidade: 3,
+        valorUnitario: 10.1,
+        status: 'reservada',
+      });
+    repo.findById.mockResolvedValue(ordem);
+    repo.update.mockImplementation(async (o: OrdemDeServico) => o);
+
+    const useCase = new FinishDiagnosisUseCase(repo as any, saga as any);
+    await useCase.execute(ordem.id, { correlationId: 'ctx-corr' });
+
+    const [, events] = repo.update.mock.calls[0];
+    expect(saga.obterCorrelationIdDaOs).toHaveBeenCalledWith(ordem.id);
+    expect(events![0].correlationId).toBe('saga-corr-1');
+    expect(events![0].payload).toEqual({
+      id: ordem.id,
+      osId: ordem.id,
+      status: StatusOS.AGUARDANDO_APROVACAO,
+      clienteId: 'c-1',
+      itens: [
+        {
+          tipo: 'SERVICO',
+          refId: 's-1',
+          descricao: 'Troca de óleo',
+          quantidade: 1,
+          precoUnitario: 150.5,
+        },
+        {
+          tipo: 'PECA',
+          refId: 'p-1',
+          descricao: 'Peça p-1',
+          quantidade: 3,
+          precoUnitario: 10.1,
+        },
+      ],
+      valorTotal: 180.8,
+    });
+  });
+
+  it('falls back to ctx correlationId when there is no saga', async () => {
+    const repo = mockRepo();
+    const saga = mockSaga();
+    const ordem = makeDiagnosingOrder();
+    repo.findById.mockResolvedValue(ordem);
+    repo.update.mockImplementation(async (o: OrdemDeServico) => o);
+    const useCase = new FinishDiagnosisUseCase(repo as any, saga as any);
+    await useCase.execute(ordem.id, { correlationId: 'ctx-corr' });
+    const [, events] = repo.update.mock.calls[0];
+    expect(events![0].correlationId).toBe('ctx-corr');
   });
 
   it('registers the diagnosis in the saga inside the repository transaction hook', async () => {

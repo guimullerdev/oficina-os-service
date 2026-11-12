@@ -345,7 +345,10 @@ describe('FinishDiagnosisUseCase', () => {
 
     const useCase = new FinishDiagnosisUseCase(
       repo as any,
-      { registrarDiagnosticoConcluido: jest.fn() } as any,
+      {
+        registrarDiagnosticoConcluido: jest.fn(),
+        obterCorrelationIdDaOs: jest.fn(),
+      } as any,
     );
     const result = await useCase.execute('os-1');
 

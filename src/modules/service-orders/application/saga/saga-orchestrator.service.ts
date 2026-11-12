@@ -192,6 +192,12 @@ export class SagaOrchestrator {
     return saga;
   }
 
+  /** correlationId da saga da OS, ou undefined quando não há saga. */
+  async obterCorrelationIdDaOs(osId: string): Promise<string | undefined> {
+    const saga = await this.repo.buscarPorOs(osId, TIPO_SAGA_OS);
+    return saga?.correlationId;
+  }
+
   /**
    * Dispara o passo GERAR_ORCAMENTO (PENDENTE -> EM_ANDAMENTO, com timer) na
    * transação do chamador. Retorna false quando não havia o que disparar.
