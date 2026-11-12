@@ -15,8 +15,8 @@ data:
   SAGA_TIMEOUT_ENABLED: "true"
   SAGA_TIMEOUT_INTERVAL_MS: "30000"
   # Timeout por passo: SAGA_TIMEOUT_<PASSO>_MS (default 1h; APROVAR_ORCAMENTO 24h)
-  # Liga após a Fase 6 criar oficina-os-queue e o secret SQS_QUEUE_URL
-  SQS_CONSUMER_ENABLED: "false"
+  # oficina-os-queue e o secret SQS_QUEUE_URL existem desde a janela paga
+  SQS_CONSUMER_ENABLED: "true"
   SQS_WAIT_TIME_SECONDS: "20"
   SQS_VISIBILITY_TIMEOUT_SECONDS: "30"
   SQS_MAX_MESSAGES: "10"

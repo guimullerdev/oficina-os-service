@@ -811,13 +811,11 @@ Pendências conhecidas, com impacto e onde seriam corrigidas.
 - **Deploy ao vivo não verificado.** Em 2026-11-11 o gateway respondeu `403`
   (ver [Deploy ativo](#deploy-ativo)). Correção: subir cluster e stage
   (`oficina-infra-k8s`, `oficina-infra-db`) e reexecutar os `curl`.
-- **Terraform da mensageria não aplicado.** O [`terraform/`](terraform/README.md)
-  (filas `oficina-os-queue` / `oficina-os-dlq` e subscriptions) é validado no CI
-  (`fmt` e `validate`), mas `plan`/`apply` exigem credenciais e o root
-  `mensageria/` compartilhado do `oficina-infra-k8s`. O consumidor SQS segue
-  desligado em produção (`SQS_CONSUMER_ENABLED: "false"` em
-  [`k8s/configmap.yaml`](k8s/configmap.yaml)). Impacto: em produção o serviço
-  não consome eventos dos outros serviços.
+- **Nenhum outro serviço publica para o OS ainda.** As filas `oficina-os-queue` /
+  `oficina-os-dlq` e as subscriptions estão aplicadas e o consumidor SQS está
+  ligado (`SQS_CONSUMER_ENABLED: "true"` em [`k8s/configmap.yaml`](k8s/configmap.yaml)),
+  mas Billing e Execução ainda não existem. Impacto: a fila fica vazia e o
+  consumo de eventos reais segue sem prova em produção.
 - **O caminho feliz orientado a eventos não move o status da OS.** A saga só
   altera a OS nas compensações; o avanço de status acontece pelos endpoints
   REST. Correção: no orquestrador, gravar o status também nas transições.
