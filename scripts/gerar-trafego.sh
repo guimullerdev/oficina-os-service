@@ -111,8 +111,11 @@ for i in $(seq 1 "$CICLOS"); do
       # `iniciar-execucao` responde 422 — é o domínio recusando pular a
       # aprovação do cliente, não um erro.
       if [ -n "$WEBHOOK_SECRET" ]; then
-        printf 'aprova=%s  ' "$(chamar POST /os/webhook/notificacao "$WEBHOOK_SECRET" \
-          "{\"osId\":\"$OS_NOVA\",\"acao\":\"APROVAR\"}")"
+        # O corpo fica numa variável: no bash 3.2 do macOS, um JSON com vírgula
+        # escrito direto dentro de "$( ... )" sofre brace expansion e vira duas
+        # chamadas com meio corpo cada (aprova=400 duas vezes).
+        CORPO_APROVA="{\"osId\":\"$OS_NOVA\",\"acao\":\"APROVAR\"}"
+        printf 'aprova=%s  ' "$(chamar POST /os/webhook/notificacao "$WEBHOOK_SECRET" "$CORPO_APROVA")"
         sleep 2
         printf 'execucao=%s  ' "$(chamar PATCH "/os/$OS_NOVA/iniciar-execucao" "$TOKEN_STAFF")"
         sleep 2
