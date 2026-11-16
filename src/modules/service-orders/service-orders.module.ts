@@ -18,6 +18,7 @@ import {
 import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/service-orders-prisma.repository';
 import { ServiceOrdersController } from './presentation/service-orders.controller';
 import { SagaOrchestrator } from './application/saga/saga-orchestrator.service';
+import { SagaMetrics } from './application/saga-metrics.service';
 import { SagaCompensador } from './application/saga/saga-compensador';
 import { SagaTimeoutScheduler } from './application/saga/saga-timeout.scheduler';
 import { SagaPrismaRepository } from './application/saga/saga.repository';
@@ -53,6 +54,7 @@ import { GetSagaUseCase } from './application/saga/get-saga.usecase';
   controllers: [ServiceOrdersController],
   providers: [
     OsStatusMetrics,
+    SagaMetrics,
     OutboxWriter,
     SagaPrismaRepository,
     {
@@ -61,8 +63,9 @@ import { GetSagaUseCase } from './application/saga/get-saga.usecase';
         prisma: PrismaService,
         repo: SagaPrismaRepository,
         outbox: OutboxWriter,
-      ) => new SagaOrchestrator(prisma, repo, outbox),
-      inject: [PrismaService, SagaPrismaRepository, OutboxWriter],
+        metrics: SagaMetrics,
+      ) => new SagaOrchestrator(prisma, repo, outbox, metrics),
+      inject: [PrismaService, SagaPrismaRepository, OutboxWriter, SagaMetrics],
     },
     CreateOrdemDeServicoUseCase,
     GetOrdemDeServicoUseCase,

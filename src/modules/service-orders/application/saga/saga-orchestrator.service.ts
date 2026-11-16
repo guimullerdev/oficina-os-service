@@ -1,9 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { StatusPassoSaga, StatusSaga } from '@prisma/client';
 
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { DomainEvent } from '../../../../shared/messaging/domain-event';
 import { OutboxWriter } from '../../../../shared/messaging/outbox.writer';
+import type { SagaMetrics } from '../saga-metrics.service';
 import {
   DEFINICAO_POR_NOME,
   EVENTOS_SAGA,
@@ -71,9 +73,36 @@ interface PassoVencido {
   sagaId: string;
 }
 
+export interface TransicaoPassoSaga {
+  passo: string;
+  ordem: number;
+  statusAnterior: StatusPassoSaga | null;
+  statusNovo: StatusPassoSaga;
+}
+
+export interface TransicaoStatusSaga {
+  statusAnterior: StatusSaga | null;
+  statusNovo: StatusSaga;
+}
+
+/** Transitions to emit as metrics ONLY after the transaction that wrote them commits. */
+export interface TransicoesSaga {
+  sagaId: string;
+  osId: string;
+  correlationId: string;
+  passos: TransicaoPassoSaga[];
+  saga?: TransicaoStatusSaga;
+}
+
 export type ResultadoAplicacaoSaga =
   | { encontrada: false; motivo: string }
-  | { encontrada: true; sagaId: string; osId: string; decisao: DecisaoSaga };
+  | {
+      encontrada: true;
+      sagaId: string;
+      osId: string;
+      decisao: DecisaoSaga;
+      transicoes: TransicoesSaga;
+    };
 
 export class SagaConcorrenciaError extends Error {
   constructor(
@@ -85,6 +114,31 @@ export class SagaConcorrenciaError extends Error {
     );
     this.name = 'SagaConcorrenciaError';
   }
+}
+
+function transicaoSaga(
+  anterior: StatusSaga,
+  novo: StatusSaga,
+): TransicaoStatusSaga | undefined {
+  return anterior === novo
+    ? undefined
+    : { statusAnterior: anterior, statusNovo: novo };
+}
+
+/** Transições de uma saga recém-criada (passos e saga com statusAnterior nulo). */
+export function transicoesDaCriacao(saga: SagaComPassos): TransicoesSaga {
+  return {
+    sagaId: saga.id,
+    osId: saga.osId,
+    correlationId: saga.correlationId,
+    passos: saga.passos.map((p) => ({
+      passo: p.nome,
+      ordem: p.ordem,
+      statusAnterior: null,
+      statusNovo: p.status,
+    })),
+    saga: { statusAnterior: null, statusNovo: saga.status },
+  };
 }
 
 function paraSnapshot(saga: SagaComPassos): SagaSnapshot {
@@ -156,6 +210,7 @@ type SagaRepositorio = Pick<
   | 'atualizarStatusSaga'
 >;
 type OutboxSaga = Pick<OutboxWriter, 'append'>;
+type SagaMetricas = Pick<SagaMetrics, 'passoTransicao' | 'sagaStatus'>;
 
 export class SagaOrchestrator {
   private readonly logger = new Logger(SagaOrchestrator.name);
@@ -164,7 +219,22 @@ export class SagaOrchestrator {
     private readonly prisma: PrismaTransacional,
     private readonly repo: SagaRepositorio,
     private readonly outbox: OutboxSaga,
+    private readonly metrics: SagaMetricas,
   ) {}
+
+  /**
+   * Emite as métricas das transições (passos primeiro, depois a saga). Deve
+   * ser chamado só depois do commit da transação que gravou as transições.
+   */
+  emitirTransicoes(t: TransicoesSaga): void {
+    const base = {
+      sagaId: t.sagaId,
+      osId: t.osId,
+      correlationId: t.correlationId,
+    };
+    for (const p of t.passos) this.metrics.passoTransicao({ ...base, ...p });
+    if (t.saga) this.metrics.sagaStatus({ ...base, ...t.saga });
+  }
 
   /** Cria a saga dentro da transação do chamador (nunca abre a própria). */
   async iniciar(
@@ -200,20 +270,21 @@ export class SagaOrchestrator {
 
   /**
    * Dispara o passo GERAR_ORCAMENTO (PENDENTE -> EM_ANDAMENTO, com timer) na
-   * transação do chamador. Retorna false quando não havia o que disparar.
+   * transação do chamador. Retorna as transições (a emitir após o commit do
+   * chamador) ou null quando não havia o que disparar.
    */
   async registrarDiagnosticoConcluido(
     osId: string,
     tx: Prisma.TransactionClient,
-  ): Promise<boolean> {
+  ): Promise<TransicoesSaga | null> {
     const saga = await this.repo.buscarPorOs(osId, TIPO_SAGA_OS, tx);
     if (!saga) {
       this.logger.warn(`saga da OS ${osId} não encontrada`);
-      return false;
+      return null;
     }
     if (saga.status !== 'EM_ANDAMENTO') {
       this.logger.warn(`saga ${saga.id} em status ${saga.status}`);
-      return false;
+      return null;
     }
     const passo = saga.passos.find(
       (p) => p.nome === PASSO_INICIADO_NO_DIAGNOSTICO,
@@ -222,7 +293,7 @@ export class SagaOrchestrator {
       this.logger.warn(
         `saga ${saga.id}: passo ${PASSO_INICIADO_NO_DIAGNOSTICO} não está pendente`,
       );
-      return false;
+      return null;
     }
 
     const count = await this.repo.atualizarPassoSeStatus(
@@ -240,19 +311,35 @@ export class SagaOrchestrator {
     );
     if (count === 0) {
       this.logger.warn(`saga ${saga.id}: passo mudou durante o diagnóstico`);
-      return false;
+      return null;
     }
-    return true;
+    return {
+      sagaId: saga.id,
+      osId: saga.osId,
+      correlationId: saga.correlationId,
+      passos: [
+        {
+          passo: passo.nome,
+          ordem: passo.ordem,
+          statusAnterior: 'PENDENTE',
+          statusNovo: 'EM_ANDAMENTO',
+        },
+      ],
+    };
   }
 
-  aplicarEvento(
+  async aplicarEvento(
     evento: string,
     envelope: EnvelopeEventoSaga,
     tx?: Prisma.TransactionClient,
   ): Promise<ResultadoAplicacaoSaga> {
     const trabalho = (c: Prisma.TransactionClient) =>
       this.aplicarNaTransacao(evento, envelope, c);
-    return tx ? trabalho(tx) : this.prisma.$transaction(trabalho);
+    // O chamador é dono do commit e emite (SagaEventHandler via ctx.afterCommit).
+    if (tx) return trabalho(tx);
+    const resultado = await this.prisma.$transaction(trabalho);
+    if (resultado.encontrada) this.emitirTransicoes(resultado.transicoes);
+    return resultado;
   }
 
   /**
@@ -269,12 +356,15 @@ export class SagaOrchestrator {
    *
    * Erro em qualquer passo propaga e reverte o lote inteiro (nada fica pela
    * metade); o próximo tick tenta de novo. Público para ser testado sem timer.
+   *
+   * As métricas de transição são emitidas só depois do commit do lote; em
+   * rollback nada é emitido.
    */
-  expirarVencidos(
+  async expirarVencidos(
     agora: Date = new Date(),
     limite: number = LIMITE_EXPIRACAO_PADRAO,
   ): Promise<ResultadoExpiracao> {
-    return this.prisma.$transaction(
+    const lote = await this.prisma.$transaction(
       async (tx) => {
         const vencidos = await tx.$queryRaw<PassoVencido[]>`
           SELECT id, saga_id AS "sagaId"
@@ -284,31 +374,34 @@ export class SagaOrchestrator {
           LIMIT ${limite}
           FOR UPDATE SKIP LOCKED`;
 
-        let expirados = 0;
+        const transicoes: TransicoesSaga[] = [];
         for (const vencido of vencidos) {
-          if (await this.expirarPasso(vencido, agora, tx)) expirados++;
+          const t = await this.expirarPasso(vencido, agora, tx);
+          if (t) transicoes.push(t);
         }
-        return { expirados };
+        return transicoes;
       },
       { timeout: TRANSACTION_TIMEOUT_MS },
     );
+    lote.forEach((t) => this.emitirTransicoes(t));
+    return { expirados: lote.length };
   }
 
   private async expirarPasso(
     vencido: PassoVencido,
     agora: Date,
     tx: Prisma.TransactionClient,
-  ): Promise<boolean> {
+  ): Promise<TransicoesSaga | null> {
     const saga = await this.repo.buscarPorId(vencido.sagaId, tx);
     if (!saga) {
       this.logger.warn(
         `saga ${vencido.sagaId} do passo vencido ${vencido.id} não encontrada`,
       );
-      return false;
+      return null;
     }
 
     const decisao = decidirExpiracao(paraSnapshot(saga), agora);
-    if (decisao.tipo === 'IGNORAR') return false;
+    if (decisao.tipo === 'IGNORAR') return null;
 
     const [alterado] = decisao.passosAlterados;
     const count = await this.repo.atualizarPassoSeStatus(
@@ -325,7 +418,7 @@ export class SagaOrchestrator {
       this.logger.warn(
         `saga ${saga.id}: passo ${vencido.id} mudou antes de expirar`,
       );
-      return false;
+      return null;
     }
 
     await this.repo.atualizarStatusSaga(
@@ -341,7 +434,26 @@ export class SagaOrchestrator {
     this.logger.log(
       `saga ${saga.id}: passo ${alterado.nome} expirado e compensado`,
     );
-    return true;
+    return {
+      sagaId: saga.id,
+      osId: saga.osId,
+      correlationId: saga.correlationId,
+      passos: [
+        {
+          passo: alterado.nome,
+          ordem: alterado.ordem,
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'EXPIRADO',
+        },
+        {
+          passo: alterado.nome,
+          ordem: alterado.ordem,
+          statusAnterior: 'EXPIRADO',
+          statusNovo: alterado.status,
+        },
+      ],
+      saga: transicaoSaga(saga.status, decisao.novoStatusSaga),
+    };
   }
 
   private async carregar(
@@ -377,20 +489,31 @@ export class SagaOrchestrator {
       agora,
       process.env,
     );
-    const resultado = (d: DecisaoSaga): ResultadoAplicacaoSaga => ({
+    const resultado = (
+      d: DecisaoSaga,
+      passos: TransicaoPassoSaga[],
+    ): ResultadoAplicacaoSaga => ({
       encontrada: true,
       sagaId: saga.id,
       osId: saga.osId,
       decisao: d,
+      transicoes: {
+        sagaId: saga.id,
+        osId: saga.osId,
+        correlationId: saga.correlationId,
+        passos,
+        saga: transicaoSaga(saga.status, d.novoStatusSaga),
+      },
     });
 
     if (decisao.tipo === 'IGNORAR' || decisao.tipo === 'PROGRESSO') {
       this.logger.log(
         `saga ${saga.id}: ${evento} -> ${decisao.tipo} ${decisao.motivo ?? ''}`.trim(),
       );
-      return resultado(decisao);
+      return resultado(decisao, []);
     }
 
+    const passosEmitidos: TransicaoPassoSaga[] = [];
     for (let i = 0; i < decisao.passosAlterados.length; i++) {
       const alterado = decisao.passosAlterados[i];
       const atual = saga.passos.find((p) => p.ordem === alterado.ordem);
@@ -414,15 +537,24 @@ export class SagaOrchestrator {
       if (count === 0 && i === 0) {
         const motivo = `concorrência: passo ${alterado.ordem} da saga ${saga.id} já mudou`;
         this.logger.warn(motivo);
-        return resultado({
-          tipo: 'IGNORAR',
-          passosAlterados: [],
-          comandos: [],
-          novoStatusSaga: saga.status,
-          motivo,
-        });
+        return resultado(
+          {
+            tipo: 'IGNORAR',
+            passosAlterados: [],
+            comandos: [],
+            novoStatusSaga: saga.status,
+            motivo,
+          },
+          [],
+        );
       }
       if (count === 0) throw new SagaConcorrenciaError(saga.id, alterado.ordem);
+      passosEmitidos.push({
+        passo: alterado.nome,
+        ordem: alterado.ordem,
+        statusAnterior: atual.status,
+        statusNovo: alterado.status,
+      });
     }
 
     if (decisao.novoStatusSaga !== saga.status) {
@@ -440,6 +572,6 @@ export class SagaOrchestrator {
         traceparent: envelope.traceparent,
       }),
     );
-    return resultado(decisao);
+    return resultado(decisao, passosEmitidos);
   }
 }

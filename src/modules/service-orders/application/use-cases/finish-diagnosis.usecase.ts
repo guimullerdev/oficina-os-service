@@ -17,6 +17,7 @@ import {
 } from '../../domain/entities/service-orders.entity';
 import { DomainEvent } from '../../../../shared/messaging/domain-event';
 import { SagaOrchestrator } from '../saga/saga-orchestrator.service';
+import type { TransicoesSaga } from '../saga/saga-orchestrator.service';
 
 @Injectable()
 export class FinishDiagnosisUseCase {
@@ -82,11 +83,19 @@ export class FinishDiagnosisUseCase {
       traceparent: ctx?.traceparent,
     };
 
-    return this.repo.update(updated, [evento], (tx) =>
-      this.sagaOrchestrator.registrarDiagnosticoConcluido(
-        updated.id,
-        tx as Prisma.TransactionClient,
-      ),
-    );
+    // Holder object: a closure-assigned `let` would be narrowed to `never`.
+    const registro: { transicoes?: TransicoesSaga | null } = {};
+    const salvo = await this.repo.update(updated, [evento], async (tx) => {
+      registro.transicoes =
+        await this.sagaOrchestrator.registrarDiagnosticoConcluido(
+          updated.id,
+          tx as Prisma.TransactionClient,
+        );
+    });
+    // Only after the transaction committed.
+    if (registro.transicoes) {
+      this.sagaOrchestrator.emitirTransicoes(registro.transicoes);
+    }
+    return salvo;
   }
 }

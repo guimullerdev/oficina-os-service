@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  HandlerContext,
   IncomingMessage,
   MessageHandler,
 } from '../handlers/message-handler.interface';
@@ -32,14 +33,20 @@ export class IdempotentProcessor {
   ): Promise<ProcessResult> {
     const eventId = message.eventId ?? message.messageId;
 
+    const callbacks: Array<() => void | Promise<void>> = [];
+    const ctx: HandlerContext = {
+      afterCommit: (fn) => {
+        callbacks.push(fn);
+      },
+    };
+
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.mensagemProcessada.create({
           data: { eventId, evento: message.evento },
         });
-        await handler.handle(message, tx);
+        await handler.handle(message, tx, ctx);
       });
-      return 'processed';
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -51,6 +58,27 @@ export class IdempotentProcessor {
         return 'duplicate';
       }
       throw error;
+    }
+
+    await this.runAfterCommit(callbacks, eventId, message.evento);
+    return 'processed';
+  }
+
+  private async runAfterCommit(
+    callbacks: Array<() => void | Promise<void>>,
+    eventId: string,
+    evento: string,
+  ): Promise<void> {
+    for (const fn of callbacks) {
+      try {
+        await fn();
+      } catch (error) {
+        this.logger.error(
+          `Callback pós-commit falhou (eventId=${eventId}, evento=${evento}): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 }

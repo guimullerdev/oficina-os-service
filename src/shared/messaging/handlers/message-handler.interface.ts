@@ -12,6 +12,16 @@ export type IncomingMessage = {
 };
 
 /**
+ * Contexto de execução de um handler. Permite registrar callbacks que só rodam
+ * depois que a transação do handler for confirmada (commit) e a mensagem tiver
+ * sido de fato processada — nunca em rollback, erro ou mensagem duplicada.
+ * Erros de um callback são logados e não afetam a mensagem já confirmada.
+ */
+export interface HandlerContext {
+  afterCommit(fn: () => void | Promise<void>): void;
+}
+
+/**
  * Trata mensagens de um evento específico. O registro é feito por `evento`.
  */
 export interface MessageHandler {
@@ -20,5 +30,9 @@ export interface MessageHandler {
    * `tx` é o cliente da transação em que a idempotência foi registrada; os
    * handlers que gravam no banco devem usá-lo para atomicidade.
    */
-  handle(message: IncomingMessage, tx?: unknown): Promise<void>;
+  handle(
+    message: IncomingMessage,
+    tx?: unknown,
+    ctx?: HandlerContext,
+  ): Promise<void>;
 }

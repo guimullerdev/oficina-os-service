@@ -82,7 +82,11 @@ describe('IdempotentProcessor', () => {
       data: { eventId: 'evt-1', evento: 'os.criada' },
     });
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(handle).toHaveBeenCalledWith(msg, expect.anything());
+    expect(handle).toHaveBeenCalledWith(
+      msg,
+      expect.anything(),
+      expect.objectContaining({ afterCommit: expect.any(Function) }),
+    );
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -186,6 +190,84 @@ describe('IdempotentProcessor', () => {
 
     await processor.process(message(), handler);
 
-    expect(handle).toHaveBeenCalledWith(expect.anything(), tx);
+    expect(handle).toHaveBeenCalledWith(
+      expect.anything(),
+      tx,
+      expect.anything(),
+    );
+  });
+
+  describe('afterCommit', () => {
+    it('runs callbacks in order after commit, tolerating failures (sync, async and non-Error)', async () => {
+      const { prisma, committed } = makeHarness();
+      const order: string[] = [];
+      const errorSpy = jest
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation();
+      const handler: MessageHandler = {
+        evento: 'os.criada',
+        handle: async (_m, _tx, ctx) => {
+          ctx?.afterCommit(() => {
+            order.push(`a:${committed.has('evt-1')}`);
+            throw new Error('sync boom');
+          });
+          ctx?.afterCommit(async () => {
+            order.push('b');
+            await Promise.reject(new Error('async boom'));
+          });
+          ctx?.afterCommit(() => {
+            order.push('c');
+          });
+          ctx?.afterCommit(() =>
+            Promise.reject('non-error' as unknown as Error),
+          );
+        },
+      };
+      const processor = new IdempotentProcessor(prisma);
+
+      await expect(
+        processor.process(message({ eventId: 'evt-1' }), handler),
+      ).resolves.toBe('processed');
+
+      expect(order).toEqual(['a:true', 'b', 'c']);
+      expect(errorSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not run callbacks when the handler throws (rollback)', async () => {
+      const { prisma } = makeHarness();
+      const cb = jest.fn();
+      const handler: MessageHandler = {
+        evento: 'os.criada',
+        handle: async (_m, _tx, ctx) => {
+          ctx?.afterCommit(cb);
+          throw new Error('handler failed');
+        },
+      };
+      const processor = new IdempotentProcessor(prisma);
+
+      await expect(processor.process(message(), handler)).rejects.toThrow(
+        'handler failed',
+      );
+      expect(cb).not.toHaveBeenCalled();
+    });
+
+    it('does not run callbacks for duplicate messages', async () => {
+      const { prisma } = makeHarness();
+      const cb = jest.fn();
+      const handler: MessageHandler = {
+        evento: 'os.criada',
+        handle: async (_m, _tx, ctx) => {
+          ctx?.afterCommit(cb);
+        },
+      };
+      const processor = new IdempotentProcessor(prisma);
+
+      await processor.process(message({ eventId: 'evt-1' }), handler);
+      cb.mockClear();
+      await expect(
+        processor.process(message({ eventId: 'evt-1' }), handler),
+      ).resolves.toBe('duplicate');
+      expect(cb).not.toHaveBeenCalled();
+    });
   });
 });

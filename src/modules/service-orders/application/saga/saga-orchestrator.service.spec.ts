@@ -11,7 +11,9 @@ import {
   SagaConcorrenciaError,
   SagaOrchestrator,
   TIPO_SAGA_OS,
+  transicoesDaCriacao,
 } from './saga-orchestrator.service';
+import type { SagaMetrics } from '../saga-metrics.service';
 import { SagaComPassos, SagaPrismaRepository } from './saga.repository';
 
 const AGORA = new Date('2025-01-01T12:00:00.000Z');
@@ -78,6 +80,9 @@ describe('SagaOrchestrator', () => {
     atualizarStatusSaga: jest.Mock;
   };
   let outbox: { append: jest.Mock };
+  let metrics: { passoTransicao: jest.Mock; sagaStatus: jest.Mock };
+  /** Ordem de 'commit' (fim do callback da $transaction) e 'metric'. */
+  let ordem: string[];
   let orchestrator: SagaOrchestrator;
 
   beforeEach(() => {
@@ -90,10 +95,13 @@ describe('SagaOrchestrator', () => {
       marcador: 'tx-interna',
       $queryRaw: queryRaw,
     } as unknown as Prisma.TransactionClient;
+    ordem = [];
     prisma = {
-      $transaction: jest.fn((cb: (c: unknown) => Promise<unknown>) =>
-        cb(txInterna),
-      ),
+      $transaction: jest.fn(async (cb: (c: unknown) => Promise<unknown>) => {
+        const resultado = await cb(txInterna);
+        ordem.push('commit');
+        return resultado;
+      }),
     };
     repo = {
       criar: jest.fn((dados) => Promise.resolve({ id: 'saga-1', ...dados })),
@@ -104,10 +112,19 @@ describe('SagaOrchestrator', () => {
       atualizarStatusSaga: jest.fn().mockResolvedValue({}),
     };
     outbox = { append: jest.fn().mockResolvedValue(undefined) };
+    metrics = {
+      passoTransicao: jest.fn(() => {
+        ordem.push('metric');
+      }),
+      sagaStatus: jest.fn(() => {
+        ordem.push('metric');
+      }),
+    };
     orchestrator = new SagaOrchestrator(
       prisma as unknown as PrismaService,
       repo as unknown as SagaPrismaRepository,
       outbox as unknown as OutboxWriter,
+      metrics as unknown as SagaMetrics,
     );
   });
 
@@ -193,7 +210,21 @@ describe('SagaOrchestrator', () => {
         tx,
       );
 
-      expect(resultado).toBe(true);
+      expect(resultado).toEqual({
+        sagaId: 'saga-1',
+        osId: 'os-1',
+        correlationId: 'corr-saga',
+        passos: [
+          {
+            passo: 'GERAR_ORCAMENTO',
+            ordem: 2,
+            statusAnterior: 'PENDENTE',
+            statusNovo: 'EM_ANDAMENTO',
+          },
+        ],
+      });
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
+      expect(metrics.sagaStatus).not.toHaveBeenCalled();
       expect(repo.buscarPorOs).toHaveBeenCalledWith('os-1', TIPO_SAGA_OS, tx);
       expect(repo.atualizarPassoSeStatus).toHaveBeenCalledWith(
         'passo-2',
@@ -220,53 +251,58 @@ describe('SagaOrchestrator', () => {
       );
     });
 
-    it('retorna false quando a saga não existe', async () => {
-      expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
-        false,
-      );
+    it('retorna null quando a saga não existe', async () => {
+      expect(
+        await orchestrator.registrarDiagnosticoConcluido('os-1', tx),
+      ).toBeNull();
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
       expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
     });
 
-    it('retorna false quando a saga não está EM_ANDAMENTO', async () => {
+    it('retorna null quando a saga não está EM_ANDAMENTO', async () => {
       repo.buscarPorOs.mockResolvedValue(
         makeSaga(['CONCLUIDO', 'PENDENTE'], { status: 'COMPENSADA' }),
       );
 
-      expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
-        false,
-      );
+      expect(
+        await orchestrator.registrarDiagnosticoConcluido('os-1', tx),
+      ).toBeNull();
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
       expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
     });
 
-    it('retorna false quando o passo GERAR_ORCAMENTO não existe', async () => {
+    it('retorna null quando o passo GERAR_ORCAMENTO não existe', async () => {
       const saga = makeSaga(['CONCLUIDO', 'PENDENTE']);
       saga.passos = saga.passos.filter((p) => p.nome !== 'GERAR_ORCAMENTO');
       repo.buscarPorOs.mockResolvedValue(saga);
 
-      expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
-        false,
-      );
+      expect(
+        await orchestrator.registrarDiagnosticoConcluido('os-1', tx),
+      ).toBeNull();
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
       expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
     });
 
-    it('retorna false quando o passo já saiu de PENDENTE', async () => {
+    it('retorna null quando o passo já saiu de PENDENTE', async () => {
       repo.buscarPorOs.mockResolvedValue(
         makeSaga(['CONCLUIDO', 'EM_ANDAMENTO']),
       );
 
-      expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
-        false,
-      );
+      expect(
+        await orchestrator.registrarDiagnosticoConcluido('os-1', tx),
+      ).toBeNull();
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
       expect(repo.atualizarPassoSeStatus).not.toHaveBeenCalled();
     });
 
-    it('retorna false quando a atualização condicional não afeta linhas', async () => {
+    it('retorna null quando a atualização condicional não afeta linhas', async () => {
       repo.buscarPorOs.mockResolvedValue(makeSaga(['CONCLUIDO', 'PENDENTE']));
       repo.atualizarPassoSeStatus.mockResolvedValue(0);
 
-      expect(await orchestrator.registrarDiagnosticoConcluido('os-1', tx)).toBe(
-        false,
-      );
+      expect(
+        await orchestrator.registrarDiagnosticoConcluido('os-1', tx),
+      ).toBeNull();
+      expect(metrics.passoTransicao).not.toHaveBeenCalled();
     });
   });
 
@@ -852,6 +888,13 @@ describe('SagaOrchestrator', () => {
             novoStatusSaga: 'EM_ANDAMENTO',
             motivo: expect.stringContaining('concorrência'),
           },
+          transicoes: {
+            sagaId: 'saga-1',
+            osId: 'os-1',
+            correlationId: 'corr-saga',
+            passos: [],
+            saga: undefined,
+          },
         });
       });
 
@@ -893,6 +936,600 @@ describe('SagaOrchestrator', () => {
             tx,
           ),
         ).rejects.toThrow('outbox down');
+      });
+    });
+  });
+
+  describe('métricas de transição', () => {
+    const envelope = {
+      eventId: 'evt-1',
+      correlationId: 'corr-envelope',
+      osId: 'os-1',
+    };
+    const base = { sagaId: 'saga-1', osId: 'os-1', correlationId: 'corr-saga' };
+    const vencida = (extra: Partial<SagaComPassos> = {}): SagaComPassos => {
+      const saga = makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO'], extra);
+      saga.passos[2].expiraEm = new Date(AGORA.getTime() - 1000);
+      return saga;
+    };
+    const linha = (id = 'passo-3', sagaId = 'saga-1') => ({ id, sagaId });
+
+    beforeEach(() => {
+      jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    describe('transicoesDaCriacao / iniciar', () => {
+      it('descreve os 6 passos (anterior nulo) e a saga criada; iniciar não emite', async () => {
+        const saga = await orchestrator.iniciar('os-1', 'corr-saga', tx);
+
+        const t = transicoesDaCriacao(saga);
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+        expect(t).toMatchObject(base);
+        expect(t.passos).toHaveLength(6);
+        expect(t.passos.every((p) => p.statusAnterior === null)).toBe(true);
+        expect(t.passos.map((p) => p.statusNovo)).toEqual([
+          'CONCLUIDO',
+          'PENDENTE',
+          'PENDENTE',
+          'PENDENTE',
+          'PENDENTE',
+          'PENDENTE',
+        ]);
+        expect(t.passos[0]).toEqual({
+          passo: 'ABRIR_OS',
+          ordem: 1,
+          statusAnterior: null,
+          statusNovo: 'CONCLUIDO',
+        });
+        expect(t.saga).toEqual({
+          statusAnterior: null,
+          statusNovo: 'EM_ANDAMENTO',
+        });
+      });
+    });
+
+    describe('emitirTransicoes', () => {
+      it('emite os passos e depois a saga', () => {
+        orchestrator.emitirTransicoes({
+          ...base,
+          passos: [
+            {
+              passo: 'EXECUTAR',
+              ordem: 4,
+              statusAnterior: 'PENDENTE',
+              statusNovo: 'EM_ANDAMENTO',
+            },
+            {
+              passo: 'COBRAR',
+              ordem: 5,
+              statusAnterior: null,
+              statusNovo: 'PENDENTE',
+            },
+          ],
+          saga: { statusAnterior: 'EM_ANDAMENTO', statusNovo: 'CONCLUIDA' },
+        });
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(2);
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(1, {
+          ...base,
+          passo: 'EXECUTAR',
+          ordem: 4,
+          statusAnterior: 'PENDENTE',
+          statusNovo: 'EM_ANDAMENTO',
+        });
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(2, {
+          ...base,
+          passo: 'COBRAR',
+          ordem: 5,
+          statusAnterior: null,
+          statusNovo: 'PENDENTE',
+        });
+        expect(metrics.sagaStatus).toHaveBeenCalledTimes(1);
+        expect(metrics.sagaStatus).toHaveBeenCalledWith({
+          ...base,
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'CONCLUIDA',
+        });
+        expect(ordem).toEqual(['metric', 'metric', 'metric']);
+      });
+
+      it('não emite sagaStatus quando a saga não mudou de status', () => {
+        orchestrator.emitirTransicoes({
+          ...base,
+          passos: [
+            {
+              passo: 'EXECUTAR',
+              ordem: 4,
+              statusAnterior: 'PENDENTE',
+              statusNovo: 'EM_ANDAMENTO',
+            },
+          ],
+        });
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(1);
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('não emite nada quando não há transições', () => {
+        orchestrator.emitirTransicoes({ ...base, passos: [] });
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('expirarVencidos', () => {
+      it('emite os dois passos (EXPIRADO, COMPENSADO) e a saga só depois do commit', async () => {
+        queryRaw.mockResolvedValue([linha()]);
+        repo.buscarPorId.mockResolvedValue(vencida());
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(2);
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(1, {
+          ...base,
+          passo: 'APROVAR_ORCAMENTO',
+          ordem: 3,
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'EXPIRADO',
+        });
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(2, {
+          ...base,
+          passo: 'APROVAR_ORCAMENTO',
+          ordem: 3,
+          statusAnterior: 'EXPIRADO',
+          statusNovo: 'COMPENSADO',
+        });
+        expect(metrics.sagaStatus).toHaveBeenCalledTimes(1);
+        expect(metrics.sagaStatus).toHaveBeenCalledWith({
+          ...base,
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'COMPENSADA',
+        });
+        expect(ordem).toEqual(['commit', 'metric', 'metric', 'metric']);
+      });
+
+      it('saga já COMPENSADA: ainda grava o status, emite os 2 passos e não emite sagaStatus', async () => {
+        queryRaw.mockResolvedValue([linha()]);
+        repo.buscarPorId.mockResolvedValue(vencida({ status: 'COMPENSADA' }));
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(repo.atualizarStatusSaga).toHaveBeenCalledTimes(1);
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(2);
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('lote de 2 sagas: 4 passos e 2 sagaStatus, o 2º com osId os-2', async () => {
+        queryRaw.mockResolvedValue([
+          linha('passo-3', 'saga-1'),
+          linha('passo-3b', 'saga-2'),
+        ]);
+        repo.buscarPorId
+          .mockResolvedValueOnce(vencida())
+          .mockResolvedValueOnce(vencida({ id: 'saga-2', osId: 'os-2' }));
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(4);
+        expect(metrics.sagaStatus).toHaveBeenCalledTimes(2);
+        expect(metrics.sagaStatus).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ sagaId: 'saga-2', osId: 'os-2' }),
+        );
+        expect(ordem[0]).toBe('commit');
+      });
+
+      it('IGNORAR não emite métricas', async () => {
+        queryRaw.mockResolvedValue([linha()]);
+        repo.buscarPorId.mockResolvedValue(
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('saga inexistente não emite métricas', async () => {
+        queryRaw.mockResolvedValue([linha()]);
+        repo.buscarPorId.mockResolvedValue(null);
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('count 0 pula o passo; só o passo processado emite', async () => {
+        queryRaw.mockResolvedValue([
+          linha('passo-3', 'saga-1'),
+          linha('passo-3b', 'saga-2'),
+        ]);
+        repo.buscarPorId
+          .mockResolvedValueOnce(vencida())
+          .mockResolvedValueOnce(vencida({ id: 'saga-2', osId: 'os-2' }));
+        repo.atualizarPassoSeStatus
+          .mockResolvedValueOnce(0)
+          .mockResolvedValueOnce(1);
+
+        await orchestrator.expirarVencidos(AGORA);
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(2);
+        expect(metrics.passoTransicao).toHaveBeenCalledWith(
+          expect.objectContaining({ sagaId: 'saga-2', osId: 'os-2' }),
+        );
+        expect(metrics.sagaStatus).toHaveBeenCalledTimes(1);
+      });
+
+      it('erro no lote (2º passo) reverte e não emite nada', async () => {
+        queryRaw.mockResolvedValue([
+          linha('passo-3', 'saga-1'),
+          linha('passo-3b', 'saga-2'),
+        ]);
+        repo.buscarPorId.mockResolvedValue(vencida());
+        outbox.append
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(new Error('outbox down'));
+
+        await expect(orchestrator.expirarVencidos(AGORA)).rejects.toThrow(
+          'outbox down',
+        );
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('erro na consulta não emite nada', async () => {
+        queryRaw.mockRejectedValue(new Error('db down'));
+
+        await expect(orchestrator.expirarVencidos(AGORA)).rejects.toThrow(
+          'db down',
+        );
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('aplicarEvento', () => {
+      it('com tx: devolve transicoes e não emite (o dono do commit emite)', async () => {
+        repo.buscarPorOs.mockResolvedValue(
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        const resultado = await orchestrator.aplicarEvento(
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          envelope,
+          tx,
+        );
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+        expect(resultado).toMatchObject({
+          encontrada: true,
+          transicoes: base,
+        });
+      });
+
+      it('sem tx: emite após o commit da própria transação', async () => {
+        repo.buscarPorOs.mockResolvedValue(
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        await orchestrator.aplicarEvento(
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          envelope,
+        );
+
+        expect(metrics.passoTransicao).toHaveBeenCalledTimes(2);
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(1, {
+          ...base,
+          passo: 'APROVAR_ORCAMENTO',
+          ordem: 3,
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'CONCLUIDO',
+        });
+        expect(metrics.passoTransicao).toHaveBeenNthCalledWith(2, {
+          ...base,
+          passo: 'EXECUTAR',
+          ordem: 4,
+          statusAnterior: 'PENDENTE',
+          statusNovo: 'EM_ANDAMENTO',
+        });
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+        expect(ordem).toEqual(['commit', 'metric', 'metric']);
+      });
+
+      it('sem tx: falha do outbox reverte e não emite', async () => {
+        repo.buscarPorOs.mockResolvedValue(
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+        outbox.append.mockRejectedValue(new Error('outbox down'));
+
+        await expect(
+          orchestrator.aplicarEvento(EVENTOS_SAGA.ORCAMENTO_APROVADO, envelope),
+        ).rejects.toThrow('outbox down');
+
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+
+      it('sem tx: saga não encontrada não emite', async () => {
+        const resultado = await orchestrator.aplicarEvento(
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          envelope,
+        );
+
+        expect(resultado.encontrada).toBe(false);
+        expect(metrics.passoTransicao).not.toHaveBeenCalled();
+        expect(metrics.sagaStatus).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('conteúdo de transicoes', () => {
+      const transicoesDe = async (
+        evento: string,
+        saga: SagaComPassos,
+        txUsado: Prisma.TransactionClient | undefined = tx,
+      ) => {
+        repo.buscarPorOs.mockResolvedValue(saga);
+        const r = await orchestrator.aplicarEvento(evento, envelope, txUsado);
+        if (!r.encontrada) throw new Error('saga não encontrada');
+        return r.transicoes;
+      };
+
+      it('AVANCAR: um item por passo alterado e saga inalterada', async () => {
+        const t = await transicoesDe(
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        expect(t.passos).toEqual([
+          {
+            passo: 'APROVAR_ORCAMENTO',
+            ordem: 3,
+            statusAnterior: 'EM_ANDAMENTO',
+            statusNovo: 'CONCLUIDO',
+          },
+          {
+            passo: 'EXECUTAR',
+            ordem: 4,
+            statusAnterior: 'PENDENTE',
+            statusNovo: 'EM_ANDAMENTO',
+          },
+        ]);
+        expect(t.saga).toBeUndefined();
+      });
+
+      it('AVANCAR final: saga EM_ANDAMENTO -> CONCLUIDA', async () => {
+        const t = await transicoesDe(
+          EVENTOS_SAGA.PAGAMENTO_CONFIRMADO,
+          makeSaga([
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'EM_ANDAMENTO',
+          ]),
+        );
+
+        expect(t.passos).toEqual([
+          {
+            passo: 'COBRAR',
+            ordem: 5,
+            statusAnterior: 'EM_ANDAMENTO',
+            statusNovo: 'CONCLUIDO',
+          },
+          {
+            passo: 'CONFIRMAR',
+            ordem: 6,
+            statusAnterior: 'PENDENTE',
+            statusNovo: 'CONCLUIDO',
+          },
+        ]);
+        expect(t.saga).toEqual({
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'CONCLUIDA',
+        });
+      });
+
+      it('COMPENSAR: passo COMPENSADO e saga COMPENSADA', async () => {
+        const t = await transicoesDe(
+          EVENTOS_SAGA.ORCAMENTO_REPROVADO,
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        expect(t.passos).toEqual([
+          {
+            passo: 'APROVAR_ORCAMENTO',
+            ordem: 3,
+            statusAnterior: 'EM_ANDAMENTO',
+            statusNovo: 'COMPENSADO',
+          },
+        ]);
+        expect(t.saga).toEqual({
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'COMPENSADA',
+        });
+      });
+
+      it('pagamento recusado: saga EM_ANDAMENTO -> PENDENTE', async () => {
+        const t = await transicoesDe(
+          EVENTOS_SAGA.PAGAMENTO_RECUSADO,
+          makeSaga([
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'CONCLUIDO',
+            'EM_ANDAMENTO',
+          ]),
+        );
+
+        expect(t.passos[0]).toMatchObject({
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'FALHOU',
+        });
+        expect(t.saga).toEqual({
+          statusAnterior: 'EM_ANDAMENTO',
+          statusNovo: 'PENDENTE',
+        });
+      });
+
+      it('IGNORAR, PROGRESSO e lock otimista não geram transições', async () => {
+        const ignorar = await transicoesDe(
+          EVENTOS_SAGA.PAGAMENTO_CONFIRMADO,
+          makeSaga(['CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+        const progresso = await transicoesDe(
+          EVENTOS_SAGA.EXECUCAO_INICIADA,
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+        repo.atualizarPassoSeStatus.mockResolvedValue(0);
+        const otimista = await transicoesDe(
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+        );
+
+        for (const t of [ignorar, progresso, otimista]) {
+          expect(t).toEqual({ ...base, passos: [], saga: undefined });
+        }
+      });
+
+      it('SagaConcorrenciaError e falha do outbox rejeitam (sem transições)', async () => {
+        repo.atualizarPassoSeStatus
+          .mockResolvedValueOnce(1)
+          .mockResolvedValueOnce(0);
+        await expect(
+          transicoesDe(
+            EVENTOS_SAGA.ORCAMENTO_APROVADO,
+            makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+          ),
+        ).rejects.toBeInstanceOf(SagaConcorrenciaError);
+
+        outbox.append.mockRejectedValue(new Error('outbox down'));
+        await expect(
+          transicoesDe(
+            EVENTOS_SAGA.ORCAMENTO_APROVADO,
+            makeSaga(['CONCLUIDO', 'CONCLUIDO', 'EM_ANDAMENTO']),
+          ),
+        ).rejects.toThrow('outbox down');
+      });
+    });
+
+    describe('fluxo feliz com repositório com estado', () => {
+      it('emite a sequência completa de transições até CONCLUIDA', async () => {
+        type PassoFake = SagaComPassos['passos'][number];
+        let estado: SagaComPassos | undefined;
+        const fake = {
+          criar: jest.fn((dados: Record<string, unknown>) => {
+            const passosDados = dados.passos as Array<{
+              ordem: number;
+              nome: string;
+              status: PassoFake['status'];
+              tentativas: number;
+              expiraEm: Date | null;
+              comando: string;
+              eventoEsperado: string | null;
+            }>;
+            estado = {
+              id: 'saga-1',
+              osId: dados.osId,
+              tipo: dados.tipo,
+              correlationId: dados.correlationId,
+              status: dados.status,
+              iniciadaEm: AGORA,
+              finalizadaEm: null,
+              passos: passosDados.map((p) => ({
+                ...p,
+                id: `passo-${p.ordem}`,
+                sagaId: 'saga-1',
+                erro: null,
+                createdAt: AGORA,
+                updatedAt: AGORA,
+              })),
+            } as unknown as SagaComPassos;
+            return Promise.resolve(structuredClone(estado));
+          }),
+          buscarPorOs: jest.fn(() =>
+            Promise.resolve(estado ? structuredClone(estado) : null),
+          ),
+          buscarPorCorrelationId: jest.fn().mockResolvedValue(null),
+          buscarPorId: jest.fn(),
+          atualizarPassoSeStatus: jest.fn(
+            (
+              id: string,
+              esperado: string,
+              dados: {
+                status: PassoFake['status'];
+                incrementarTentativas?: boolean;
+              },
+            ) => {
+              const passo = estado?.passos.find((p) => p.id === id);
+              if (!passo || passo.status !== esperado)
+                return Promise.resolve(0);
+              passo.status = dados.status;
+              if (dados.incrementarTentativas) passo.tentativas += 1;
+              return Promise.resolve(1);
+            },
+          ),
+          atualizarStatusSaga: jest.fn((_id: string, status: string) => {
+            if (estado) estado.status = status as SagaComPassos['status'];
+            return Promise.resolve({});
+          }),
+        };
+        const orq = new SagaOrchestrator(
+          prisma as unknown as PrismaService,
+          fake as unknown as SagaPrismaRepository,
+          outbox as unknown as OutboxWriter,
+          metrics as unknown as SagaMetrics,
+        );
+
+        const saga = await orq.iniciar('os-1', 'corr-saga', tx);
+        orq.emitirTransicoes(transicoesDaCriacao(saga));
+        const diag = await orq.registrarDiagnosticoConcluido('os-1', tx);
+        if (!diag) throw new Error('diagnóstico não registrado');
+        orq.emitirTransicoes(diag);
+        for (const evento of [
+          EVENTOS_SAGA.ORCAMENTO_GERADO,
+          EVENTOS_SAGA.ORCAMENTO_APROVADO,
+          EVENTOS_SAGA.EXECUCAO_CONCLUIDA,
+          EVENTOS_SAGA.PAGAMENTO_CONFIRMADO,
+        ]) {
+          const r = await orq.aplicarEvento(evento, envelope, tx);
+          if (!r.encontrada) throw new Error(`saga não encontrada: ${evento}`);
+          orq.emitirTransicoes(r.transicoes);
+        }
+
+        expect(estado?.status).toBe('CONCLUIDA');
+        const concluidos = metrics.passoTransicao.mock.calls
+          .map(([i]) => i as { passo: string; statusNovo: string })
+          .filter((i) => i.statusNovo === 'CONCLUIDO')
+          .map((i) => i.passo);
+        expect(concluidos).toEqual([
+          'ABRIR_OS',
+          'GERAR_ORCAMENTO',
+          'APROVAR_ORCAMENTO',
+          'EXECUTAR',
+          'COBRAR',
+          'CONFIRMAR',
+        ]);
+        expect(
+          metrics.sagaStatus.mock.calls.map(
+            ([i]) => (i as { statusNovo: string }).statusNovo,
+          ),
+        ).toEqual(['EM_ANDAMENTO', 'CONCLUIDA']);
+        const todas = [
+          ...metrics.passoTransicao.mock.calls,
+          ...metrics.sagaStatus.mock.calls,
+        ].map(([i]) => (i as { correlationId: string }).correlationId);
+        expect(new Set(todas)).toEqual(new Set(['corr-saga']));
       });
     });
   });

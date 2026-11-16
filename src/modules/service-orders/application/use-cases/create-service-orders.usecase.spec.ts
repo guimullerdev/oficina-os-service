@@ -4,6 +4,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { CreateOrdemDeServicoUseCase } from './create-service-orders.usecase';
+import { transicoesDaCriacao } from '../saga/saga-orchestrator.service';
+import type { SagaComPassos } from '../saga/saga.repository';
 import {
   OrdemDeServico,
   StatusOS,
@@ -88,7 +90,10 @@ function makeUseCase(
   const clienteRepo = overrides.clienteRepo ?? mockClienteRepo();
   const addServico = overrides.addServico ?? mockAddServico();
   const addPeca = overrides.addPeca ?? mockAddPeca();
-  const saga = overrides.saga ?? { iniciar: jest.fn() };
+  const saga = overrides.saga ?? {
+    iniciar: jest.fn(),
+    emitirTransicoes: jest.fn(),
+  };
   return {
     repo,
     veiculoRepo,
@@ -390,6 +395,93 @@ describe('CreateOrdemDeServicoUseCase', () => {
       const tx = { marcador: 'tx' };
       await naTransacao(tx);
       expect(saga.iniciar).toHaveBeenCalledWith(os.id, 'corr-777', tx);
+    });
+
+    it('does not emit saga metrics when the repository never runs the hook', async () => {
+      const { repo, veiculoRepo, clienteRepo, saga, useCase } = makeUseCase();
+      (repo as any).generateNumero.mockResolvedValue('OS-011');
+      (repo as any).create.mockImplementation(async (o: OrdemDeServico) => o);
+      (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+      (veiculoRepo as any).findById.mockResolvedValue(
+        makeVeiculo('v-1', 'c-1'),
+      );
+
+      await useCase.execute({ clienteId: 'c-1', veiculoId: 'v-1' });
+
+      expect(saga.emitirTransicoes).not.toHaveBeenCalled();
+    });
+
+    it('emits the saga creation metrics only after the transaction committed', async () => {
+      const { repo, veiculoRepo, clienteRepo, saga, useCase } = makeUseCase();
+      const sagaFake = {
+        id: 'saga-1',
+        osId: 'os-x',
+        correlationId: 'corr-777',
+        status: 'EM_ANDAMENTO',
+        passos: [
+          { nome: 'ABRIR_OS', ordem: 1, status: 'CONCLUIDO' },
+          { nome: 'GERAR_ORCAMENTO', ordem: 2, status: 'PENDENTE' },
+        ],
+      } as unknown as SagaComPassos;
+      saga.iniciar.mockResolvedValue(sagaFake);
+      (repo as any).generateNumero.mockResolvedValue('OS-012');
+      (repo as any).create.mockImplementation(
+        async (
+          o: OrdemDeServico,
+          _e: unknown,
+          cb: (tx: unknown) => unknown,
+        ) => {
+          await cb({ marcador: 'tx' });
+          expect(saga.emitirTransicoes).not.toHaveBeenCalled();
+          return o;
+        },
+      );
+      (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+      (veiculoRepo as any).findById.mockResolvedValue(
+        makeVeiculo('v-1', 'c-1'),
+      );
+
+      await useCase.execute(
+        { clienteId: 'c-1', veiculoId: 'v-1' },
+        { correlationId: 'corr-777' },
+      );
+
+      expect(saga.emitirTransicoes).toHaveBeenCalledTimes(1);
+      expect(saga.emitirTransicoes).toHaveBeenCalledWith(
+        transicoesDaCriacao(sagaFake),
+      );
+    });
+
+    it('does not emit when the hook ran but the transaction failed', async () => {
+      const { repo, veiculoRepo, clienteRepo, saga, useCase } = makeUseCase();
+      saga.iniciar.mockResolvedValue({
+        id: 'saga-1',
+        osId: 'os-x',
+        correlationId: 'corr-777',
+        status: 'EM_ANDAMENTO',
+        passos: [],
+      });
+      (repo as any).generateNumero.mockResolvedValue('OS-013');
+      (repo as any).create.mockImplementation(
+        async (
+          _o: OrdemDeServico,
+          _e: unknown,
+          cb: (tx: unknown) => unknown,
+        ) => {
+          await cb({});
+          throw new Error('commit failed');
+        },
+      );
+      (clienteRepo as any).findById.mockResolvedValue(makeCliente('c-1'));
+      (veiculoRepo as any).findById.mockResolvedValue(
+        makeVeiculo('v-1', 'c-1'),
+      );
+
+      await expect(
+        useCase.execute({ clienteId: 'c-1', veiculoId: 'v-1' }),
+      ).rejects.toThrow('commit failed');
+
+      expect(saga.emitirTransicoes).not.toHaveBeenCalled();
     });
   });
 

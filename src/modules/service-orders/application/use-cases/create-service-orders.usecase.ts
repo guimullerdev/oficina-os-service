@@ -25,7 +25,11 @@ import { CreateOsDto } from '../dto/create-service-orders.dto';
 import { AddServicoToOsUseCase } from './add-service-to-order.usecase';
 import { AddPecaToOsUseCase } from './add-part-to-order.usecase';
 import { DomainEvent } from '../../../../shared/messaging/domain-event';
-import { SagaOrchestrator } from '../saga/saga-orchestrator.service';
+import {
+  SagaOrchestrator,
+  transicoesDaCriacao,
+} from '../saga/saga-orchestrator.service';
+import type { SagaComPassos } from '../saga/saga.repository';
 
 @Injectable()
 export class CreateOrdemDeServicoUseCase {
@@ -92,13 +96,19 @@ export class CreateOrdemDeServicoUseCase {
       correlationId,
       traceparent: ctx?.traceparent,
     };
-    let saved = await this.repo.create(os, [evento], (tx) =>
-      this.sagaOrchestrator.iniciar(
+    // Holder object: a closure-assigned `let` would be narrowed to `never`.
+    const criada: { saga?: SagaComPassos } = {};
+    let saved = await this.repo.create(os, [evento], async (tx) => {
+      criada.saga = await this.sagaOrchestrator.iniciar(
         os.id,
         correlationId,
         tx as Prisma.TransactionClient,
-      ),
-    );
+      );
+    });
+    // Only after the transaction committed.
+    if (criada.saga) {
+      this.sagaOrchestrator.emitirTransicoes(transicoesDaCriacao(criada.saga));
+    }
 
     for (const s of dto.servicos ?? []) {
       saved = await this.addServicoUseCase.execute(
