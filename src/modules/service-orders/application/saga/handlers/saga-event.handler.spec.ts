@@ -1,6 +1,9 @@
 import { Logger } from '@nestjs/common';
 
-import { IncomingMessage } from '../../../../../shared/messaging/handlers/message-handler.interface';
+import {
+  HandlerContext,
+  IncomingMessage,
+} from '../../../../../shared/messaging/handlers/message-handler.interface';
 import { EVENTOS_SAGA } from '../saga-definicao';
 import {
   ResultadoAplicacaoSaga,
@@ -13,6 +16,12 @@ const encontrada = {
   sagaId: 's1',
   osId: 'os-1',
   decisao: { tipo: 'AVANCAR' },
+  transicoes: {
+    sagaId: 's1',
+    osId: 'os-1',
+    correlationId: 'c1',
+    passos: [],
+  },
 } as unknown as ResultadoAplicacaoSaga;
 
 const makeOrchestrator = (result: ResultadoAplicacaoSaga = encontrada) => {
@@ -21,9 +30,30 @@ const makeOrchestrator = (result: ResultadoAplicacaoSaga = encontrada) => {
     [string, { osId?: string }, unknown?]
   >();
   aplicarEvento.mockResolvedValue(result);
+  const emitirTransicoes = jest.fn();
   return {
     aplicarEvento,
-    orchestrator: { aplicarEvento } as unknown as SagaOrchestrator,
+    emitirTransicoes,
+    orchestrator: {
+      aplicarEvento,
+      emitirTransicoes,
+    } as unknown as SagaOrchestrator,
+  };
+};
+
+const ctxFake = () => {
+  const callbacks: Array<() => void | Promise<void>> = [];
+  const ctx = {
+    afterCommit: jest.fn((fn: () => void | Promise<void>) => {
+      callbacks.push(fn);
+    }),
+  };
+  return {
+    ctx: ctx as HandlerContext,
+    afterCommit: ctx.afterCommit,
+    flush: async () => {
+      for (const fn of callbacks) await fn();
+    },
   };
 };
 
@@ -113,9 +143,89 @@ describe('SagaEventHandler', () => {
       aoCompensar,
     );
 
-    await handler.handle(msg(), tx);
+    const { ctx } = ctxFake();
 
-    expect(aoCompensar).toHaveBeenCalledWith(encontrada, msg(), tx);
+    await handler.handle(msg(), tx, ctx);
+
+    expect(aoCompensar).toHaveBeenCalledWith(encontrada, msg(), tx, ctx);
+  });
+
+  describe('emissão das métricas da saga', () => {
+    const transicoes = (encontrada as { transicoes: unknown }).transicoes;
+
+    it('com tx e ctx: registra afterCommit e só emite após o flush', async () => {
+      const { orchestrator, emitirTransicoes } = makeOrchestrator();
+      const { ctx, afterCommit, flush } = ctxFake();
+      const handler = new SagaEventHandler('orcamento.gerado', orchestrator);
+
+      await handler.handle(msg(), {}, ctx);
+
+      expect(afterCommit).toHaveBeenCalledTimes(1);
+      expect(emitirTransicoes).not.toHaveBeenCalled();
+
+      await flush();
+
+      expect(emitirTransicoes).toHaveBeenCalledTimes(1);
+      expect(emitirTransicoes).toHaveBeenCalledWith(transicoes);
+    });
+
+    it('sem tx: não registra afterCommit (o orquestrador já emitiu)', async () => {
+      const { orchestrator, emitirTransicoes } = makeOrchestrator();
+      const { ctx, afterCommit, flush } = ctxFake();
+      const handler = new SagaEventHandler('orcamento.gerado', orchestrator);
+
+      await handler.handle(msg(), undefined, ctx);
+      await flush();
+
+      expect(afterCommit).not.toHaveBeenCalled();
+      expect(emitirTransicoes).not.toHaveBeenCalled();
+    });
+
+    it('com tx e sem ctx: não lança e não emite', async () => {
+      const { orchestrator, emitirTransicoes } = makeOrchestrator();
+      const handler = new SagaEventHandler('orcamento.gerado', orchestrator);
+
+      await expect(handler.handle(msg(), {})).resolves.toBeUndefined();
+
+      expect(emitirTransicoes).not.toHaveBeenCalled();
+    });
+
+    it('saga não encontrada: não registra afterCommit', async () => {
+      const { orchestrator } = makeOrchestrator({
+        encontrada: false,
+        motivo: 'sem saga',
+      });
+      const { ctx, afterCommit } = ctxFake();
+      const handler = new SagaEventHandler('orcamento.gerado', orchestrator);
+
+      await handler.handle(msg(), {}, ctx);
+
+      expect(afterCommit).not.toHaveBeenCalled();
+    });
+
+    it('aplicarEvento rejeita: propaga e não registra afterCommit', async () => {
+      const { orchestrator, aplicarEvento } = makeOrchestrator();
+      aplicarEvento.mockRejectedValueOnce(new Error('boom'));
+      const { ctx, afterCommit } = ctxFake();
+      const handler = new SagaEventHandler('orcamento.gerado', orchestrator);
+
+      await expect(handler.handle(msg(), {}, ctx)).rejects.toThrow('boom');
+
+      expect(afterCommit).not.toHaveBeenCalled();
+    });
+
+    it('aoCompensar rejeita: o erro propaga', async () => {
+      const { orchestrator } = makeOrchestrator();
+      const aoCompensar = jest.fn().mockRejectedValue(new Error('comp'));
+      const { ctx } = ctxFake();
+      const handler = new SagaEventHandler(
+        'orcamento.gerado',
+        orchestrator,
+        aoCompensar,
+      );
+
+      await expect(handler.handle(msg(), {}, ctx)).rejects.toThrow('comp');
+    });
   });
 
   it('propagates orchestrator errors so the message is redelivered', async () => {

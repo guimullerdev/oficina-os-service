@@ -1,6 +1,9 @@
 import { Logger } from '@nestjs/common';
 
-import { IncomingMessage } from '../../../../shared/messaging/handlers/message-handler.interface';
+import {
+  HandlerContext,
+  IncomingMessage,
+} from '../../../../shared/messaging/handlers/message-handler.interface';
 import {
   OrdemDeServico,
   StatusOS,
@@ -52,7 +55,29 @@ const resultado = (
     comandos: [],
     compensacao,
   },
+  transicoes: {
+    sagaId: 's1',
+    osId: 'os-1',
+    correlationId: 'corr-saga',
+    passos: [],
+  },
 });
+
+const ctxFake = () => {
+  const callbacks: Array<() => void | Promise<void>> = [];
+  const ctx = {
+    afterCommit: jest.fn((fn: () => void | Promise<void>) => {
+      callbacks.push(fn);
+    }),
+  };
+  return {
+    ctx: ctx as HandlerContext,
+    afterCommit: ctx.afterCommit,
+    flush: async () => {
+      for (const fn of callbacks) await fn();
+    },
+  };
+};
 
 const msg = (over: Partial<IncomingMessage> = {}): IncomingMessage => ({
   messageId: 'm1',
@@ -92,11 +117,13 @@ describe('SagaCompensador', () => {
         osEm(StatusOS.AGUARDANDO_APROVACAO),
       );
       const tx = { id: 'tx' };
+      const { ctx, flush } = ctxFake();
 
       await compensador.aoCompensar(
         resultado('COMPENSAR', 'OS_REPROVADA'),
         msg(),
         tx,
+        ctx,
       );
 
       expect(repo.findByIdInTx).toHaveBeenCalledWith('os-1', tx);
@@ -106,10 +133,30 @@ describe('SagaCompensador', () => {
       expect(compensada.status).toBe(StatusOS.REPROVADA);
       expect(esperado).toBe(StatusOS.AGUARDANDO_APROVACAO);
       expect(txUsado).toBe(tx);
+      expect(metrics.registrarTransicao).not.toHaveBeenCalled();
+
+      await flush();
+
+      expect(metrics.registrarTransicao).toHaveBeenCalledTimes(1);
       expect(metrics.registrarTransicao).toHaveBeenCalledWith(
         compensada,
         'corr-1',
       );
+    });
+
+    it('applies the update without ctx but emits no metric', async () => {
+      const { compensador, repo, metrics } = setup(
+        osEm(StatusOS.AGUARDANDO_APROVACAO),
+      );
+
+      await compensador.aoCompensar(
+        resultado('COMPENSAR', 'OS_REPROVADA'),
+        msg(),
+        {},
+      );
+
+      expect(repo.updateStatusInTx).toHaveBeenCalledTimes(1);
+      expect(metrics.registrarTransicao).not.toHaveBeenCalled();
     });
 
     it('is a no-op when the OS is already REPROVADA', async () => {
@@ -166,11 +213,13 @@ describe('SagaCompensador', () => {
     it('moves EM_EXECUCAO back to APROVADA in the given tx and emits the metric', async () => {
       const { compensador, repo, metrics } = setup(osEm(StatusOS.EM_EXECUCAO));
       const tx = { id: 'tx' };
+      const { ctx, flush } = ctxFake();
 
       await compensador.aoCompensar(
         resultado('COMPENSAR', 'OS_VOLTA_APROVADA'),
         msg({ evento: 'execucao.falhou' }),
         tx,
+        ctx,
       );
 
       const [compensada, esperado, txUsado] = repo.updateStatusInTx.mock
@@ -178,6 +227,10 @@ describe('SagaCompensador', () => {
       expect(compensada.status).toBe(StatusOS.APROVADA);
       expect(esperado).toBe(StatusOS.EM_EXECUCAO);
       expect(txUsado).toBe(tx);
+      expect(metrics.registrarTransicao).not.toHaveBeenCalled();
+
+      await flush();
+
       expect(metrics.registrarTransicao).toHaveBeenCalledWith(
         compensada,
         'corr-1',
@@ -311,6 +364,65 @@ describe('SagaCompensador', () => {
       expect(metrics.registrarTransicao).not.toHaveBeenCalled();
     });
 
+    it('registers no afterCommit when the race is lost', async () => {
+      const { compensador, repo } = setup(osEm(StatusOS.AGUARDANDO_APROVACAO));
+      repo.updateStatusInTx.mockResolvedValue(false);
+      const { ctx, afterCommit } = ctxFake();
+
+      await expect(
+        compensador.aoCompensar(
+          resultado('COMPENSAR', 'OS_REPROVADA'),
+          msg(),
+          {},
+          ctx,
+        ),
+      ).rejects.toBeInstanceOf(OsCompensacaoConcorrenciaError);
+
+      expect(afterCommit).not.toHaveBeenCalled();
+    });
+
+    it('registers no afterCommit when the read fails', async () => {
+      const { compensador, repo } = setup();
+      repo.findByIdInTx.mockRejectedValue(new Error('db down'));
+      const { ctx, afterCommit } = ctxFake();
+
+      await expect(
+        compensador.aoCompensar(
+          resultado('COMPENSAR', 'OS_REPROVADA'),
+          msg(),
+          {},
+          ctx,
+        ),
+      ).rejects.toThrow('db down');
+
+      expect(afterCommit).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['missing OS', null, 'OS_REPROVADA' as const],
+      [
+        'already compensated',
+        osEm(StatusOS.REPROVADA),
+        'OS_REPROVADA' as const,
+      ],
+      ['other status', osEm(StatusOS.APROVADA), 'OS_REPROVADA' as const],
+    ])(
+      'registers no afterCommit on no-op/warn path (%s)',
+      async (_n, os, c) => {
+        const { compensador } = setup(os);
+        const { ctx, afterCommit } = ctxFake();
+
+        await compensador.aoCompensar(
+          resultado('COMPENSAR', c),
+          msg(),
+          {},
+          ctx,
+        );
+
+        expect(afterCommit).not.toHaveBeenCalled();
+      },
+    );
+
     it('propagates repository read errors', async () => {
       const { compensador, repo, metrics } = setup();
       repo.findByIdInTx.mockRejectedValue(new Error('db down'));
@@ -337,23 +449,40 @@ describe('SagaCompensador', () => {
   });
 
   it('integrates with SagaEventHandler passing the processor tx down to the repository', async () => {
-    const { compensador, repo } = setup(osEm(StatusOS.AGUARDANDO_APROVACAO));
+    const { compensador, repo, metrics } = setup(
+      osEm(StatusOS.AGUARDANDO_APROVACAO),
+    );
     const aplicarEvento = jest
       .fn()
       .mockResolvedValue(resultado('COMPENSAR', 'OS_REPROVADA'));
-    const orchestrator = { aplicarEvento } as unknown as SagaOrchestrator;
+    const emitirTransicoes = jest.fn();
+    const orchestrator = {
+      aplicarEvento,
+      emitirTransicoes,
+    } as unknown as SagaOrchestrator;
     const [handler] = criarSagaEventHandlers(
       orchestrator,
       compensador.aoCompensar,
     );
     const tx = { id: 'tx-processador' };
+    const { ctx, flush } = ctxFake();
 
-    await handler.handle(msg(), tx);
+    await handler.handle(msg(), tx, ctx);
 
     expect(repo.updateStatusInTx).toHaveBeenCalledWith(
       expect.objectContaining({ status: StatusOS.REPROVADA }),
       StatusOS.AGUARDANDO_APROVACAO,
       tx,
+    );
+    expect(emitirTransicoes).not.toHaveBeenCalled();
+    expect(metrics.registrarTransicao).not.toHaveBeenCalled();
+
+    await flush();
+
+    expect(emitirTransicoes).toHaveBeenCalledTimes(1);
+    expect(metrics.registrarTransicao).toHaveBeenCalledTimes(1);
+    expect(emitirTransicoes.mock.invocationCallOrder[0]).toBeLessThan(
+      metrics.registrarTransicao.mock.invocationCallOrder[0],
     );
   });
 });

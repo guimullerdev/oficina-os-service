@@ -31,6 +31,7 @@ emissão, o painel não quebra, ele simplesmente esvazia.
 | Volume diário de OS | `Log` com `req.url = '/os'` e `res.statusCode = 201` | `nestjs-pino` (automático por requisição) |
 | Tempo médio por status | `Log` com `event = 'os.status.transicao'` | `OsStatusMetricsInterceptor` |
 | Erros e falhas | `Log` com `event` em (`os.processamento.falha`, `requisicao.falha`) | `HttpExceptionFilter` |
+| Painel da saga (passos e desfecho) | `Log` com `event = 'saga.passo.transicao'` (`sagaId`, `osId`, `passo`, `ordem`, `statusAnterior`, `statusNovo`, `correlationId`) e `event = 'saga.status'` (`sagaId`, `osId`, `statusAnterior`, `statusNovo`, `correlationId`); `statusAnterior` nulo na criação | `SagaMetrics`, logado só depois do commit da transação que gravou a transição (`SagaOrchestrator.emitirTransicoes`) |
 
 ### Por que o tempo médio por status precisou de código
 

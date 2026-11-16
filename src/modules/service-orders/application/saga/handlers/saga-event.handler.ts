@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import {
+  HandlerContext,
   IncomingMessage,
   MessageHandler,
 } from '../../../../../shared/messaging/handlers/message-handler.interface';
@@ -19,6 +20,7 @@ export type AoCompensar = (
   resultado: Extract<ResultadoAplicacaoSaga, { encontrada: true }>,
   message: IncomingMessage,
   tx?: unknown,
+  ctx?: HandlerContext,
 ) => Promise<void>;
 
 export const EVENTOS_RECEBIDOS_PELA_SAGA: readonly string[] = [
@@ -41,7 +43,8 @@ const extrairOsId = (payload: unknown): string | undefined => {
 
 /**
  * Aplica um evento recebido da fila à saga da OS, na transação do
- * processador idempotente. Erros propagam (a mensagem será reentregue).
+ * processador idempotente. Erros propagam (a mensagem será reentregue). As
+ * métricas de transição saem por `ctx.afterCommit`, só após o commit.
  */
 export class SagaEventHandler implements MessageHandler {
   private readonly logger = new Logger(SagaEventHandler.name);
@@ -52,7 +55,11 @@ export class SagaEventHandler implements MessageHandler {
     private readonly aoCompensar?: AoCompensar,
   ) {}
 
-  async handle(message: IncomingMessage, tx?: unknown): Promise<void> {
+  async handle(
+    message: IncomingMessage,
+    tx?: unknown,
+    ctx?: HandlerContext,
+  ): Promise<void> {
     const resultado = await this.orchestrator.aplicarEvento(
       this.evento,
       {
@@ -75,7 +82,12 @@ export class SagaEventHandler implements MessageHandler {
     this.logger.log(
       `Evento ${this.evento} aplicado à saga ${resultado.sagaId} (os=${resultado.osId}) decisao=${resultado.decisao.tipo}`,
     );
-    await this.aoCompensar?.(resultado, message, tx);
+    // Sem tx, aplicarEvento abriu e confirmou a própria transação e já emitiu.
+    if (tx && ctx) {
+      const { transicoes } = resultado;
+      ctx.afterCommit(() => this.orchestrator.emitirTransicoes(transicoes));
+    }
+    await this.aoCompensar?.(resultado, message, tx, ctx);
   }
 }
 

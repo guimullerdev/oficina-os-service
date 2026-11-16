@@ -348,6 +348,7 @@ describe('FinishDiagnosisUseCase', () => {
       {
         registrarDiagnosticoConcluido: jest.fn(),
         obterCorrelationIdDaOs: jest.fn(),
+        emitirTransicoes: jest.fn(),
       } as any,
     );
     const result = await useCase.execute('os-1');
@@ -363,7 +364,10 @@ describe('FinishDiagnosisUseCase', () => {
 
     const useCase = new FinishDiagnosisUseCase(
       repo as any,
-      { registrarDiagnosticoConcluido: jest.fn() } as any,
+      {
+        registrarDiagnosticoConcluido: jest.fn(),
+        emitirTransicoes: jest.fn(),
+      } as any,
     );
     await expect(useCase.execute('missing')).rejects.toThrow(NotFoundException);
   });

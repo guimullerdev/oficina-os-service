@@ -18,8 +18,9 @@ const mockRepo = (): jest.Mocked<IOrdemDeServicoRepository> => ({
 });
 
 const mockSaga = () => ({
-  registrarDiagnosticoConcluido: jest.fn().mockResolvedValue(true),
+  registrarDiagnosticoConcluido: jest.fn().mockResolvedValue(null),
   obterCorrelationIdDaOs: jest.fn().mockResolvedValue(undefined),
+  emitirTransicoes: jest.fn(),
 });
 
 const makeDiagnosingOrder = () =>
@@ -202,5 +203,76 @@ describe('FinishDiagnosisUseCase', () => {
       ordem.id,
       tx,
     );
+  });
+
+  describe('saga metrics', () => {
+    const TRANSICOES = {
+      sagaId: 'saga-1',
+      osId: 'os-1',
+      correlationId: 'corr-saga',
+      passos: [
+        {
+          passo: 'GERAR_ORCAMENTO',
+          ordem: 2,
+          statusAnterior: 'PENDENTE',
+          statusNovo: 'EM_ANDAMENTO',
+        },
+      ],
+    };
+
+    it('emits the transitions only after the transaction committed and returns the update result', async () => {
+      const repo = mockRepo();
+      const saga = mockSaga();
+      saga.registrarDiagnosticoConcluido.mockResolvedValue(TRANSICOES);
+      const ordem = makeDiagnosingOrder();
+      repo.findById.mockResolvedValue(ordem);
+      const persistida = ordem.concluirDiagnostico();
+      repo.update.mockImplementation(async (_o, _e, cb) => {
+        await cb!({ marcador: 'tx' });
+        expect(saga.emitirTransicoes).not.toHaveBeenCalled();
+        return persistida;
+      });
+      const useCase = new FinishDiagnosisUseCase(repo as any, saga as any);
+
+      const result = await useCase.execute(ordem.id);
+
+      expect(saga.emitirTransicoes).toHaveBeenCalledTimes(1);
+      expect(saga.emitirTransicoes).toHaveBeenCalledWith(TRANSICOES);
+      expect(result).toBe(persistida);
+    });
+
+    it('does not emit when the saga had nothing to register (null)', async () => {
+      const repo = mockRepo();
+      const saga = mockSaga();
+      const ordem = makeDiagnosingOrder();
+      repo.findById.mockResolvedValue(ordem);
+      repo.update.mockImplementation(async (o, _e, cb) => {
+        await cb!({});
+        return o;
+      });
+      const useCase = new FinishDiagnosisUseCase(repo as any, saga as any);
+
+      await useCase.execute(ordem.id);
+
+      expect(saga.registrarDiagnosticoConcluido).toHaveBeenCalledTimes(1);
+      expect(saga.emitirTransicoes).not.toHaveBeenCalled();
+    });
+
+    it('does not emit when the hook ran but the update rejected', async () => {
+      const repo = mockRepo();
+      const saga = mockSaga();
+      saga.registrarDiagnosticoConcluido.mockResolvedValue(TRANSICOES);
+      const ordem = makeDiagnosingOrder();
+      repo.findById.mockResolvedValue(ordem);
+      repo.update.mockImplementation(async (_o, _e, cb) => {
+        await cb!({});
+        throw new Error('commit failed');
+      });
+      const useCase = new FinishDiagnosisUseCase(repo as any, saga as any);
+
+      await expect(useCase.execute(ordem.id)).rejects.toThrow('commit failed');
+
+      expect(saga.emitirTransicoes).not.toHaveBeenCalled();
+    });
   });
 });
