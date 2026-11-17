@@ -345,7 +345,7 @@ describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
         .aprovarOrcamento()
         .iniciarExecucao();
 
-    it('updates only status/updatedAt guarded by the expected status and appends history', async () => {
+    it('updates only status/closing fields/updatedAt guarded by the expected status and appends history', async () => {
       const { repo, prisma, tx } = setupTx();
       tx.ordemDeServico.updateMany.mockResolvedValue({ count: 1 });
       const compensada = emExecucao().compensarFalhaExecucao();
@@ -359,7 +359,12 @@ describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
       expect(ok).toBe(true);
       expect(tx.ordemDeServico.updateMany).toHaveBeenCalledWith({
         where: { id: 'os-1', status: StatusOS.EM_EXECUCAO },
-        data: { status: StatusOS.APROVADA, updatedAt: compensada.updatedAt },
+        data: {
+          status: StatusOS.APROVADA,
+          arquivada: false,
+          dataFechamento: null,
+          updatedAt: compensada.updatedAt,
+        },
       });
       expect(tx.historicoStatusOS.createMany).toHaveBeenCalledWith({
         data: expect.arrayContaining([
@@ -372,6 +377,24 @@ describe('OrdemDeServicoPrismaRepository transactional port (saga)', () => {
         skipDuplicates: true,
       });
       expectNoOwnTransaction(prisma);
+    });
+
+    it('persists arquivada and dataFechamento when the OS is finalized', async () => {
+      const { repo, tx } = setupTx();
+      tx.ordemDeServico.updateMany.mockResolvedValue({ count: 1 });
+      const finalizada = emExecucao().finalizarExecucao();
+
+      await repo.updateStatusInTx(finalizada, StatusOS.EM_EXECUCAO, tx);
+
+      expect(tx.ordemDeServico.updateMany).toHaveBeenCalledWith({
+        where: { id: 'os-1', status: StatusOS.EM_EXECUCAO },
+        data: {
+          status: StatusOS.FINALIZADA,
+          arquivada: true,
+          dataFechamento: finalizada.dataFechamento,
+          updatedAt: finalizada.updatedAt,
+        },
+      });
     });
 
     it('returns false without touching the history when the status changed meanwhile', async () => {

@@ -200,6 +200,9 @@ export class OrdemDeServicoPrismaRepository
       where: { id: os.id, status: statusEsperado as unknown as PrismaStatusOS },
       data: {
         status: os.status as unknown as PrismaStatusOS,
+        // FINALIZADA/ENTREGUE também fecham e arquivam a OS (agregado).
+        arquivada: os.arquivada,
+        dataFechamento: os.dataFechamento ?? null,
         updatedAt: os.updatedAt,
       },
     });

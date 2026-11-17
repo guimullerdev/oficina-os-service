@@ -32,7 +32,7 @@ export interface IOrdemDeServicoRepository {
  */
 export interface IOrdemDeServicoRepositoryTransacional {
   findByIdInTx(id: string, tx: unknown): Promise<OrdemDeServico | null>;
-  /** grava só status/updatedAt/histórico se status atual no banco === statusEsperado; false se não */
+  /** grava só status/arquivada/dataFechamento/updatedAt/histórico (sem itens) se status atual no banco === statusEsperado; false se não */
   updateStatusInTx(
     os: OrdemDeServico,
     statusEsperado: StatusOS,
