@@ -294,7 +294,7 @@ Resultado: 661 testes em 58 suítes, todos passando.
 
 **SonarQube Cloud.** Projeto público
 [`guimullerdev_oficina-os-service`](https://sonarcloud.io/project/overview?id=guimullerdev_oficina-os-service):
-cobertura de 94.5% sobre 6.280 linhas e Quality Gate *OK*. A diferença para o
+cobertura de 94,8% sobre 6.976 linhas e Quality Gate *OK* (17/11/2026; o badge acima mostra o valor atual). A diferença para o
 Jest é esperada: o Sonar calcula a cobertura no próprio escopo, a partir de
 `sonar.sources`, `sonar.exclusions` e do relatório lcov, e não do
 `collectCoverageFrom` do Jest.
