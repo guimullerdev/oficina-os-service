@@ -852,3 +852,18 @@ aplicação, execução do CI/CD, consumo das APIs e escalabilidade automática.
 | `yarn test` / `yarn test:cov` | Testes unitários / com cobertura |
 | `yarn test:e2e` | Testes end-to-end |
 | `yarn lint` / `yarn lint:ci` | ESLint com correções automáticas / modo CI (sem `--fix`, `--max-warnings=0`) |
+
+### Demo e geração de tráfego
+
+O fluxo completo da saga atravessa os 3 serviços, então ele vive num script
+só, no `oficina-billing-service`, e este repo o reaproveita (clone os dois lado
+a lado).
+
+| Comando | Para quê |
+|---|---|
+| `OS_EMAIL=<staff> SCENARIOS=feliz ../oficina-billing-service/scripts/e2e-prod.sh` | Demo guiada: uma OS do começo ao fim (OS → orçamento → execução → pagamento), passo a passo. Cenários: `feliz`, `reprovado`, `recusado`, `falhou` |
+| `BASE_URL=<stage> OS_EMAIL=<staff> ./scripts/gerar-trafego.sh [ciclos]` | Enche os painéis do New Relic antes de gravar: aquecimento (latência, HTTP, CPF) + `e2e-prod.sh` nos 3 desfechos da saga por ciclo |
+
+A senha do staff vem de `OS_PASSWORD` ou é pedida sem eco; nunca vai em
+argumento nem em arquivo. O antigo `preparar-demo.sh` foi removido: usava rotas
+do OS que a Fase 4 levou para o Billing e a Execução.
