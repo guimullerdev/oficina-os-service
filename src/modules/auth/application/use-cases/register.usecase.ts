@@ -1,4 +1,9 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 import { ConfigService } from '@nestjs/config';
@@ -18,7 +23,16 @@ export class RegisterUseCase {
     private readonly configService: ConfigService,
   ) {}
 
-  async execute(dto: RegisterDto): Promise<AuthResponseDto> {
+  async execute(
+    dto: RegisterDto,
+    solicitante?: { role?: string },
+  ): Promise<AuthResponseDto> {
+    if (dto.role && solicitante?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Somente ADMIN pode definir o perfil do usuário',
+      );
+    }
+
     const existing = await this.repo.findByEmail(dto.email);
     if (existing) throw new ConflictException('Email já cadastrado');
 

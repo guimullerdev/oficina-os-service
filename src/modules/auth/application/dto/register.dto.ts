@@ -18,7 +18,13 @@ export class RegisterDto {
   @MinLength(6, { message: 'Senha deve ter no mínimo 6 caracteres' })
   password: string;
 
-  @ApiProperty({ enum: UserRole, default: UserRole.ATENDENTE, required: false })
+  @ApiProperty({
+    enum: UserRole,
+    default: UserRole.ATENDENTE,
+    required: false,
+    description:
+      'Perfil do usuário. Somente ADMIN autenticado (Bearer) pode informar; sem este campo, o perfil é ATENDENTE',
+  })
   @IsOptional()
   @IsEnum(UserRole, {
     message: 'Role inválida. Use: ADMIN, ATENDENTE ou MECANICO',

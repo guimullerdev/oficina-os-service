@@ -8,6 +8,7 @@
 import { randomUUID } from 'crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import * as bcrypt from 'bcrypt';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { HttpExceptionFilter } from 'src/common/filters/http-exception.filter';
@@ -56,9 +57,18 @@ describe('Ordem de Serviço — ciclo de vida completo (e2e)', () => {
     servicoId = randomUUID();
     pecaId = randomUUID();
 
+    // /auth/register não aceita mais `role` publicamente (só ADMIN autenticado).
+    // Algumas rotas exigem MECANICO/ADMIN, então semeamos um ADMIN direto no banco e fazemos login.
+    await prisma.user.create({
+      data: {
+        email: 'e2e-os@test.com',
+        passwordHash: await bcrypt.hash('senha123', 10),
+        role: 'ADMIN',
+      },
+    });
     const authRes = await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({ email: 'e2e-os@test.com', password: 'senha123', role: 'ADMIN' });
+      .post('/auth/login')
+      .send({ email: 'e2e-os@test.com', password: 'senha123' });
     token = authRes.body.accessToken;
   });
 
