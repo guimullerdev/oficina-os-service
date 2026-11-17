@@ -1,6 +1,6 @@
 # Observabilidade — New Relic
 
-Dashboard ativo: **https://onenr.io/0qwykVVv1jn**
+Dashboard ativo: **https://one.newrelic.com/dashboards/detail/ODUxMDQwMXxWSVp8REFTSEJPQVJEfGRhOjEzNTc4MDYy?account=8510401**
 
 Definição versionada:
 [`dashboard-newrelic.json`](dashboard-newrelic.json).
