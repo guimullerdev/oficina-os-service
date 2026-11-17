@@ -16,7 +16,7 @@ Este é um dos **6 repositórios** da Fase 4:
 |---|---|
 | **`oficina-os-service`** (aqui; antigo `TECH-CHALLENGE-FASE-ONE`) | microsserviço de OS: aplicação, orquestrador da Saga, manifestos Kubernetes e pipeline de deploy |
 | [`oficina-billing-service`](https://github.com/guimullerdev/oficina-billing-service) | microsserviço de orçamento e pagamento |
-| [`oficina-execucao-service`](https://github.com/guimullerdev/oficina-execucao-service) | microsserviço de execução do serviço e estoque de peças |
+| [`oficina-execucao-service`](https://github.com/guimullerdev/oficina-execucao-service) | microsserviço de execução e produção (fila de trabalho da oficina) |
 | [`oficina-auth-lambda`](https://github.com/guimullerdev/oficina-auth-lambda) | função serverless de autenticação por CPF |
 | [`oficina-infra-k8s`](https://github.com/guimullerdev/oficina-infra-k8s) | cluster EKS, API Gateway e observabilidade |
 | [`oficina-infra-db`](https://github.com/guimullerdev/oficina-infra-db) | banco de dados gerenciado (RDS) |
@@ -39,10 +39,11 @@ ADR 0006). Há um único ambiente, `prod` (ver ADR 0009).
 - **Healthcheck**: https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod/health
 - **Dashboard de observabilidade**: https://onenr.io/0qwykVVv1jn
 
-> **Deploy não verificado ao vivo em 2026-11-11.** Nessa data a URL acima
-> respondeu `403` em `/health` e em `/api` (cluster e stage fora do ar). Os
-> comandos abaixo refletem o fluxo atual, mas não foram executados contra o
-> deploy. Os mesmos `curl` funcionam localmente contra o `docker compose`
+> **Deploy verificado ao vivo em 2026-11-17:** `/health`, `/api` e
+> `POST /auth/cpf` responderam `200`, assim como o Swagger e o health de
+> Billing (`/billing/docs`) e Execução (`/execucao/docs`). Na mesma data o
+> e2e de produção levou uma OS até `FINALIZADA` passando pelos 3 serviços.
+> Os mesmos `curl` funcionam localmente contra o `docker compose`
 > (ver [Execução local](#execução-local-docker-compose)) com
 > `BASE=http://localhost:3000`, **exceto `/auth/cpf`**, que só existe atrás do
 > API Gateway (servido pelo `oficina-auth-lambda`).
@@ -82,7 +83,20 @@ está em [`manual-test.http`](manual-test.http) e no Swagger.
 
 ---
 
-## Objetivos da Fase 3
+## Objetivos da Fase 4
+
+- **Microsserviços:** o monólito vira 3 serviços (OS, Billing, Execução), cada
+  um com seu próprio banco (PostgreSQL para OS e Billing, DynamoDB para
+  Execução), conversando por eventos SNS + SQS.
+- **Saga orquestrada** no OS, com compensações, timeouts por passo e
+  idempotência por `eventId` (ver [Saga orquestrada](#saga-orquestrada)).
+- **Qualidade:** cobertura mínima de 80% nos 3 serviços, Quality Gate do
+  SonarQube Cloud bloqueando PRs e BDD da compensação da Saga.
+- **Deploy e observabilidade:** pipeline por serviço até o EKS, branch
+  protection nos 6 repos e rastreamento distribuído pelo `correlationId` no
+  New Relic.
+
+### Objetivos da Fase 3 (histórico)
 
 - **Autenticação de cliente por CPF** via função serverless, com JWT aceito
   pela mesma API que já autentica o staff por e-mail/senha — dois atores
@@ -135,7 +149,7 @@ e [sequência da Saga](docs/diagrams/0006-sequencia-saga-os.md).
 |---|---|---|
 | **OS** (este repo) | OS, clientes, veículos, autenticação e o estado da Saga | `oficina-os-events` |
 | **Billing** | orçamento e pagamento | `oficina-billing-events` |
-| **Execução** | execução do serviço e estoque de peças | `oficina-execucao-events` |
+| **Execução** | execução do serviço (fila de trabalho) | `oficina-execucao-events` |
 
 Papel deste serviço: é dono de OS, clientes, veículos e auth; **hospeda o
 orquestrador da Saga**; publica eventos via outbox → SNS (tópico
@@ -803,29 +817,24 @@ Pendências conhecidas, com impacto e onde seriam corrigidas.
 - **`oficina-auth-lambda` lê a tabela `clientes` direto no RDS** (um `SELECT
   documento, ativo FROM clientes`, somente leitura). É acoplamento por banco
   compartilhado atravessando a fronteira de serviço
-  ([ADR 0008](docs/adr/0008-um-rds-dois-bancos-logicos.md)). O secret
-  `DATABASE_URL_PROD` dele ainda aponta para `oficina_prod` e precisa ser
-  reapontado para `oficina_os`, sob pena de a autenticação por CPF parar. A
+  ([ADR 0008](docs/adr/0008-um-rds-dois-bancos-logicos.md)). O secret dele já
+  aponta para `oficina_os` (CPF validado em produção em 2026-11-17). A
   correção de fundo, no `oficina-auth-lambda`, é um endpoint interno do OS
   Service ou um read model replicado.
-- **Deploy ao vivo não verificado.** Em 2026-11-11 o gateway respondeu `403`
-  (ver [Deploy ativo](#deploy-ativo)). Correção: subir cluster e stage
-  (`oficina-infra-k8s`, `oficina-infra-db`) e reexecutar os `curl`.
-- **Nenhum outro serviço publica para o OS ainda.** As filas `oficina-os-queue` /
-  `oficina-os-dlq` e as subscriptions estão aplicadas e o consumidor SQS está
-  ligado (`SQS_CONSUMER_ENABLED: "true"` em [`k8s/configmap.yaml`](k8s/configmap.yaml)),
-  mas Billing e Execução ainda não existem. Impacto: a fila fica vazia e o
-  consumo de eventos reais segue sem prova em produção.
-- **O caminho feliz orientado a eventos não move o status da OS.** A saga só
-  altera a OS nas compensações; o avanço de status acontece pelos endpoints
-  REST. Correção: no orquestrador, gravar o status também nas transições.
-- **Payloads dos comandos da saga não alinhados com Billing e Execução.** Não há
-  contraparte real; o contrato foi validado só contra LocalStack e o cenário
-  BDD. Correção: fechar o contrato com os repos de Billing e Execução.
+- **`ENTREGUE` é manual.** A saga leva a OS até `FINALIZADA`
+  (`APROVADA → EM_EXECUCAO → FINALIZADA`); a entrega ao cliente continua sendo
+  uma ação do staff pela API.
+- **Cadastro público cria perfil de staff.** `POST /auth/register` cria um
+  usuário `ATENDENTE`. Correção: restringir a rota a `ADMIN` ou criar um perfil
+  sem permissões de staff.
 
 ---
 
 ## Vídeo demonstrativo
+
+**Fase 4**: _(a publicar)_ — fluxo completo de uma OS pelos 3 microsserviços,
+Saga com compensação e DLQ, deploy automatizado com Quality Gate e trace
+distribuído pelo `correlationId`.
 
 **Fase 3**: _(a publicar)_ — autenticação por CPF, geração e uso do JWT,
 execução da pipeline, deploy automatizado, consumo das APIs protegidas,
