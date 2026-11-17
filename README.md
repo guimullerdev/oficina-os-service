@@ -572,7 +572,7 @@ perfil específico, por exemplo:
 | Método | Rota | Descrição |
 |---|---|---|
 | `GET`  | `/health` | Health check (liveness/readiness) |
-| `POST` | `/auth/register` | Registrar usuário |
+| `POST` | `/auth/register` | Registrar usuário (sem `role` vira ATENDENTE; `role` só com Bearer de ADMIN, senão 403) |
 | `POST` | `/auth/login` | Autenticar e emitir tokens |
 | `POST` | `/auth/refresh` | Renovar o access token |
 | `POST` | `/clientes` | Criar cliente |

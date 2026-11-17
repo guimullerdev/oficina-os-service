@@ -8,6 +8,7 @@ import { LoginUseCase } from './application/use-cases/login.usecase';
 import { RefreshTokenUseCase } from './application/use-cases/refresh-token.usecase';
 import { UserPrismaRepository } from './infrastructure/repositories/user-prisma.repository';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 
 @Module({
@@ -18,6 +19,7 @@ import { RolesGuard } from './guards/roles.guard';
     LoginUseCase,
     RefreshTokenUseCase,
     JwtAuthGuard,
+    OptionalJwtAuthGuard,
     RolesGuard,
     {
       provide: 'UserRepository',

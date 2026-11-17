@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
+import { OptionalJwtAuthGuard } from '../guards/optional-jwt-auth.guard';
 import { RegisterUseCase } from '../application/use-cases/register.usecase';
 import { LoginUseCase } from '../application/use-cases/login.usecase';
 import { RefreshTokenUseCase } from '../application/use-cases/refresh-token.usecase';
@@ -29,21 +30,31 @@ describe('AuthController', () => {
         { provide: LoginUseCase, useValue: loginUseCase },
         { provide: RefreshTokenUseCase, useValue: refreshTokenUseCase },
       ],
-    }).compile();
+    })
+      .overrideGuard(OptionalJwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });
 
   it('register delegates to RegisterUseCase', async () => {
-    const result = await controller.register({
-      email: 'a@b.com',
-      password: 'pass',
-    });
-    expect(registerUseCase.execute).toHaveBeenCalledWith({
-      email: 'a@b.com',
-      password: 'pass',
-    });
+    const result = await controller.register(
+      { email: 'a@b.com', password: 'pass' },
+      {} as any,
+    );
+    expect(registerUseCase.execute).toHaveBeenCalledWith(
+      { email: 'a@b.com', password: 'pass' },
+      undefined,
+    );
     expect(result).toHaveProperty('accessToken');
+  });
+
+  it('register passes the authenticated requester to the use case', async () => {
+    const dto = { email: 'a@b.com', password: 'pass', role: 'ADMIN' } as any;
+    const user = { sub: 'u-1', role: 'ADMIN' };
+    await controller.register(dto, { user } as any);
+    expect(registerUseCase.execute).toHaveBeenCalledWith(dto, user);
   });
 
   it('login delegates to LoginUseCase', async () => {

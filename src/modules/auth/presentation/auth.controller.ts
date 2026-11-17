@@ -1,5 +1,19 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { Request } from 'express';
 
 import { RegisterUseCase } from '../application/use-cases/register.usecase';
 import { LoginUseCase } from '../application/use-cases/login.usecase';
@@ -9,6 +23,7 @@ import { LoginDto } from '../application/dto/login.dto';
 import { RefreshTokenDto } from '../application/dto/refresh-token.dto';
 import { AuthResponseDto } from '../application/dto/auth-response.dto';
 import { Public } from '../decorators/public.decorator';
+import { OptionalJwtAuthGuard } from '../guards/optional-jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -20,18 +35,31 @@ export class AuthController {
   ) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Registrar novo usuário' })
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Registrar novo usuário',
+    description:
+      'Rota pública. O campo `role` só é aceito com Bearer token de um ADMIN; sem `role`, o usuário é criado como ATENDENTE.',
+  })
   @ApiResponse({
     status: 201,
     description: 'Usuário criado; retorna accessToken e refreshToken',
     type: AuthResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Dados inválidos' })
+  @ApiResponse({
+    status: 403,
+    description: 'Somente ADMIN pode definir o perfil (role) do usuário',
+  })
   @ApiResponse({ status: 409, description: 'Email já cadastrado' })
-  register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
-    return this.registerUseCase.execute(dto);
+  register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request & { user?: { role?: string } },
+  ): Promise<AuthResponseDto> {
+    return this.registerUseCase.execute(dto, req.user);
   }
 
   @Public()
