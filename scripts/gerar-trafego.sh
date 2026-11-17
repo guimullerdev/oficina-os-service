@@ -1,28 +1,35 @@
 #!/usr/bin/env bash
 #
 # Gera tráfego contra o ambiente para os painéis do New Relic terem o que
-# mostrar. Escrito para a gravação do vídeo da Fase 3: os painéis consultam
-# eventos específicos, e sem tráfego real eles nascem vazios.
+# mostrar antes de gravar. Duas partes por ciclo:
+#
+#   1. Aquecimento (só leitura e recusas): latência, códigos HTTP e os
+#      desfechos da autenticação por CPF. Usa a massa de prisma/seed-demo.sql;
+#      se o login por CPF falhar, esta parte é pulada.
+#   2. Fluxo pelos 3 serviços: roda o scripts/e2e-prod.sh do
+#      oficina-billing-service, que abre OSs e leva cada uma por OS, Billing e
+#      Execução nos desfechos da saga (CONCLUIDA, COMPENSADA, PENDENTE).
+#      O fluxo vive num script só, no Billing, para não manter duas cópias.
 #
 # Uso:
 #   export BASE_URL=https://7eu2kz40xj.execute-api.us-east-1.amazonaws.com/prod
-#   export STAFF_EMAIL=... STAFF_PASSWORD=...
-#   export WEBHOOK_SECRET=...   # mesmo valor do serviço; aprova a OS pelo webhook
-#   ./scripts/gerar-trafego.sh [ciclos]
+#   export OS_EMAIL=<staff>              # usuário staff do serviço de OS
+#   ./scripts/gerar-trafego.sh [ciclos]  # pede a senha sem eco se OS_PASSWORD não existir
 #
-# Sem STAFF_EMAIL/STAFF_PASSWORD o script roda assim mesmo, só pulando o que
-# exige staff (abertura de OS e transições de status). Útil para aquecer
-# latência e códigos HTTP sem precisar de credencial. Sem WEBHOOK_SECRET a OS
-# não é aprovada (o orçamento vive no serviço de Billing; a aprovação chega
-# aqui pelo webhook) e o ciclo para em AGUARDANDO_APROVACAO.
+# Variáveis opcionais:
+#   BILLING_REPO  caminho do clone do oficina-billing-service
+#                 (default: ../oficina-billing-service, ao lado deste repo)
+#   SCENARIOS     cenários do e2e por ciclo (default: "feliz reprovado recusado")
 #
-# A senha nunca aparece em argumento de linha de comando — vem por variável
-# de ambiente, para não ficar visível em `ps` nem no histórico do shell.
+# A senha nunca aparece em argumento de linha de comando nem em arquivo: vem
+# por variável de ambiente ou por `read -s`.
 set -uo pipefail
 
 BASE_URL="${BASE_URL:?defina BASE_URL com o endpoint do stage}"
-CICLOS="${1:-20}"
-WEBHOOK_SECRET="${WEBHOOK_SECRET:-}"
+CICLOS="${1:-3}"
+SCENARIOS="${SCENARIOS:-feliz reprovado recusado}"
+BILLING_REPO="${BILLING_REPO:-$(cd "$(dirname "$0")/../.." && pwd)/oficina-billing-service}"
+E2E="$BILLING_REPO/scripts/e2e-prod.sh"
 CPF_ATIVO="${CPF_ATIVO:-69759054876}"
 CPF_INATIVO="${CPF_INATIVO:-38405253149}"
 CPF_INEXISTENTE="${CPF_INEXISTENTE:-11144477735}"
@@ -31,8 +38,18 @@ CPF_INEXISTENTE="${CPF_INEXISTENTE:-11144477735}"
 OS_DO_CLIENTE="${OS_DO_CLIENTE:-dddddddd-2222-4222-8222-dddddddddddd}"
 OS_ENCERRADA="${OS_ENCERRADA:-dddddddd-1111-4111-8111-dddddddddddd}"
 OS_DE_OUTRO="${OS_DE_OUTRO:-dddddddd-3333-4333-8333-dddddddddddd}"
-CLIENTE_ID="${CLIENTE_ID:-11111111-1111-4111-8111-111111111111}"
-VEICULO_ID="${VEICULO_ID:-aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa}"
+
+[ -x "$E2E" ] || [ -f "$E2E" ] || {
+  echo "!! não achei $E2E — clone o oficina-billing-service ao lado deste repo ou defina BILLING_REPO"
+  exit 1
+}
+
+: "${OS_EMAIL:?defina OS_EMAIL com o usuário staff do serviço de OS}"
+if [ -z "${OS_PASSWORD:-}" ]; then
+  read -rsp "Senha de $OS_EMAIL (não aparece): " OS_PASSWORD
+  echo
+fi
+export OS_EMAIL OS_PASSWORD
 
 json() { python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
 
@@ -45,91 +62,49 @@ chamar() { # método url [token] [body]
   curl "${args[@]}"
 }
 
-# ---------------------------------------------------------------------------
-# Autenticação
-# ---------------------------------------------------------------------------
-echo "==> autenticando cliente por CPF"
+echo "==> autenticando cliente por CPF (aquecimento)"
 TOKEN_CLIENTE=$(curl -s -X POST "$BASE_URL/auth/cpf" -H 'content-type: application/json' \
   -d "{\"cpf\":\"$CPF_ATIVO\"}" | json accessToken)
-[ -z "$TOKEN_CLIENTE" ] && { echo "!! não obtive token de cliente — a massa foi aplicada neste ambiente?"; exit 1; }
+[ -z "$TOKEN_CLIENTE" ] && echo "-- sem token de cliente (massa de demo ausente?): pulando o aquecimento"
 
-TOKEN_STAFF=""
-if [ -n "${STAFF_EMAIL:-}" ] && [ -n "${STAFF_PASSWORD:-}" ]; then
-  echo "==> autenticando staff por email/senha"
-  TOKEN_STAFF=$(curl -s -X POST "$BASE_URL/auth/login" -H 'content-type: application/json' \
-    -d "{\"email\":\"$STAFF_EMAIL\",\"password\":\"$STAFF_PASSWORD\"}" | json accessToken)
-  [ -z "$TOKEN_STAFF" ] && echo "!! login de staff falhou — seguindo sem os painéis que dependem dele"
-else
-  echo "-- STAFF_EMAIL/STAFF_PASSWORD não definidos: pulando abertura de OS e transições"
-fi
-
-# ---------------------------------------------------------------------------
-# Ciclos
-# ---------------------------------------------------------------------------
+FALHAS=0
 for i in $(seq 1 "$CICLOS"); do
   printf '\n== ciclo %s/%s\n' "$i" "$CICLOS"
 
-  # Painéis de latência, códigos HTTP e rotas mais lentas: qualquer tráfego
-  # serve, desde que variado.
-  printf '  health=%s  os/me=%s  status=%s  acompanhamento=%s\n' \
-    "$(chamar GET /health)" \
-    "$(chamar GET /os/me "$TOKEN_CLIENTE")" \
-    "$(chamar GET "/os/$OS_DO_CLIENTE/status" "$TOKEN_CLIENTE")" \
-    "$(chamar GET "/os/$OS_ENCERRADA/acompanhamento" "$TOKEN_CLIENTE")"
+  if [ -n "$TOKEN_CLIENTE" ]; then
+    # Latência, códigos HTTP e rotas mais lentas: qualquer tráfego variado serve.
+    printf '  health=%s  os/me=%s  status=%s  acompanhamento=%s\n' \
+      "$(chamar GET /health)" \
+      "$(chamar GET /os/me "$TOKEN_CLIENTE")" \
+      "$(chamar GET "/os/$OS_DO_CLIENTE/status" "$TOKEN_CLIENTE")" \
+      "$(chamar GET "/os/$OS_ENCERRADA/acompanhamento" "$TOKEN_CLIENTE")"
 
-  # Recusas: alimentam o painel por status HTTP e provam o isolamento.
-  printf '  os-de-outro=%s  sem-token=%s  staff-only=%s  consulta-errada=%s\n' \
-    "$(chamar GET "/os/$OS_DE_OUTRO/status" "$TOKEN_CLIENTE")" \
-    "$(chamar GET /os/me)" \
-    "$(chamar GET /os "$TOKEN_CLIENTE")" \
-    "$(chamar GET "/os/consulta?numero=OS-2026-0001&documento=$CPF_INEXISTENTE")"
+    # Recusas: alimentam o painel por status HTTP e provam o isolamento.
+    printf '  os-de-outro=%s  sem-token=%s  staff-only=%s\n' \
+      "$(chamar GET "/os/$OS_DE_OUTRO/status" "$TOKEN_CLIENTE")" \
+      "$(chamar GET /os/me)" \
+      "$(chamar GET /os "$TOKEN_CLIENTE")"
 
-  # Os três desfechos da autenticação por CPF.
-  printf '  cpf-inativo=%s  cpf-inexistente=%s  cpf-malformado=%s\n' \
-    "$(chamar POST /auth/cpf '' "{\"cpf\":\"$CPF_INATIVO\"}")" \
-    "$(chamar POST /auth/cpf '' "{\"cpf\":\"$CPF_INEXISTENTE\"}")" \
-    "$(chamar POST /auth/cpf '' '{"cpf":"123"}')"
-
-  if [ -n "$TOKEN_STAFF" ]; then
-    # Painel "volume diário de OS": conta POST /os com 201.
-    OS_NOVA=$(curl -s -X POST "$BASE_URL/os" -H 'content-type: application/json' \
-      -H "authorization: Bearer $TOKEN_STAFF" \
-      -d "{\"clienteId\":\"$CLIENTE_ID\",\"veiculoId\":\"$VEICULO_ID\",\"descricaoProblema\":\"Carga de demonstração — ciclo $i\"}" \
-      | json id)
-
-    if [ -n "$OS_NOVA" ]; then
-      # Painéis "tempo médio por status" e "transições ao longo do tempo":
-      # dependem do evento os.status.transicao, que só nasce de transição
-      # real. O intervalo entre elas vira a duração no gráfico.
-      printf '  OS criada  diagnostico=%s  ' "$(chamar PATCH "/os/$OS_NOVA/iniciar-diagnostico" "$TOKEN_STAFF")"
-      sleep 3
-      printf 'conclui=%s  ' "$(chamar PATCH "/os/$OS_NOVA/concluir-diagnostico" "$TOKEN_STAFF")"
-      sleep 2
-
-      # Concluir o diagnóstico deixa a OS em AGUARDANDO_APROVACAO. O orçamento
-      # vive no Billing; a aprovação chega aqui pelo webhook. Sem aprovar,
-      # `iniciar-execucao` responde 422 — é o domínio recusando pular a
-      # aprovação do cliente, não um erro.
-      if [ -n "$WEBHOOK_SECRET" ]; then
-        # O corpo fica numa variável: no bash 3.2 do macOS, um JSON com vírgula
-        # escrito direto dentro de "$( ... )" sofre brace expansion e vira duas
-        # chamadas com meio corpo cada (aprova=400 duas vezes).
-        CORPO_APROVA="{\"osId\":\"$OS_NOVA\",\"acao\":\"APROVAR\"}"
-        printf 'aprova=%s  ' "$(chamar POST /os/webhook/notificacao "$WEBHOOK_SECRET" "$CORPO_APROVA")"
-        sleep 2
-        printf 'execucao=%s  ' "$(chamar PATCH "/os/$OS_NOVA/iniciar-execucao" "$TOKEN_STAFF")"
-        sleep 2
-        printf 'finaliza=%s\n' "$(chamar PATCH "/os/$OS_NOVA/finalizar-execucao" "$TOKEN_STAFF")"
-      else
-        printf 'sem WEBHOOK_SECRET — pulando aprovação e execução\n'
-      fi
-    else
-      echo "  !! abertura de OS não retornou id"
-    fi
+    # Os três desfechos da autenticação por CPF.
+    printf '  cpf-inativo=%s  cpf-inexistente=%s  cpf-malformado=%s\n' \
+      "$(chamar POST /auth/cpf '' "{\"cpf\":\"$CPF_INATIVO\"}")" \
+      "$(chamar POST /auth/cpf '' "{\"cpf\":\"$CPF_INEXISTENTE\"}")" \
+      "$(chamar POST /auth/cpf '' '{"cpf":"123"}')"
   fi
 
-  sleep 2
+  # Fluxo pelos 3 serviços (OS, Billing, Execução), um desfecho por cenário.
+  # Só o resumo final de cada execução, para o terminal não virar ruído.
+  if API_BASE="$BASE_URL" SCENARIOS="$SCENARIOS" CHECK_DLQ=0 bash "$E2E" >"/tmp/gerar-trafego-$$.log" 2>&1; then
+    echo "  e2e ($SCENARIOS): ok — $(grep -cE '^\[(feliz|reprovado|recusado|falhou)\]' "/tmp/gerar-trafego-$$.log") cenário(s)"
+  else
+    FALHAS=$((FALHAS + 1))
+    echo "  !! e2e falhou neste ciclo — últimas linhas:"
+    tail -n 8 "/tmp/gerar-trafego-$$.log" | sed 's/^/     /'
+  fi
 done
+rm -f "/tmp/gerar-trafego-$$.log"
+unset OS_PASSWORD
 
 echo
-echo "Pronto. Os painéis levam ~1 min para refletir (harvest do agente)."
+echo "Pronto ($FALHAS ciclo(s) com falha). Os painéis levam ~1 min para refletir."
+[ "$FALHAS" -eq 0 ]
