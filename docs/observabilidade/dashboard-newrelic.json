@@ -1,6 +1,24 @@
 {
-  "name": "Oficina — Tech Challenge Fase 3",
-  "description": "Os três painéis exigidos pelo PDF da Fase 3, mais latência e saúde. Importar em New Relic → Dashboards → Import dashboard, e trocar ACCOUNT_ID pelo id da conta.",
+  "name": "Oficina — Tech Challenge Fase 4",
+  "variables": [
+    {
+      "name": "correlationId",
+      "title": "correlationId",
+      "type": "STRING",
+      "isMultiSelection": false,
+      "replacementStrategy": "STRING",
+      "defaultValues": [
+        {
+          "value": {
+            "string": "67c027fe-6951-4918-a46f-ed84810f8484"
+          }
+        }
+      ],
+      "nrqlQuery": null,
+      "items": null
+    }
+  ],
+  "description": "Painéis exigidos pelos PDFs das Fases 3 e 4 (OS, saúde, saga e mensageria entre os 3 serviços). Importar em New Relic → Dashboards → Import dashboard, e trocar ACCOUNT_ID pelo id da conta.",
   "permissions": "PUBLIC_READ_WRITE",
   "pages": [
     {
@@ -128,6 +146,194 @@
                 "query": "SELECT average(cpuUsedCores) AS 'CPU (cores)', average(memoryWorkingSetBytes) / 1e6 AS 'Memória (MB)' FROM K8sContainerSample WHERE containerName = 'oficina-os-service' TIMESERIES SINCE 3 hours ago"
               }
             ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Saga e mensageria",
+      "description": "Saga orquestrada pelo OS entre OS, Billing e Execução: passos, desfechos, filas SQS e rastreamento por correlationId",
+      "widgets": [
+        {
+          "title": "Passos da saga por estado",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.bar"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Log SELECT count(*) WHERE event = 'saga.passo.transicao' AND container_name = 'oficina-os-service' FACET passo, statusNovo SINCE 24 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Desfecho das sagas",
+          "layout": {
+            "column": 7,
+            "row": 1,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Log SELECT count(*) WHERE event = 'saga.status' AND container_name = 'oficina-os-service' FACET statusNovo TIMESERIES 1 hour SINCE 24 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Profundidade das DLQs",
+          "layout": {
+            "column": 1,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Metric SELECT max(aws.sqs.ApproximateNumberOfMessagesVisible) WHERE aws.sqs.QueueName LIKE '%dlq' FACET aws.sqs.QueueName TIMESERIES SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Backlog das filas principais",
+          "layout": {
+            "column": 7,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Metric SELECT max(aws.sqs.ApproximateNumberOfMessagesVisible) WHERE aws.sqs.QueueName NOT LIKE '%dlq' AND aws.sqs.QueueName LIKE 'oficina-%' FACET aws.sqs.QueueName TIMESERIES SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Rastreamento por correlationId (3 serviços)",
+          "layout": {
+            "column": 1,
+            "row": 7,
+            "width": 12,
+            "height": 4
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Log SELECT timestamp, container_name, message WHERE allColumnSearch({{correlationId}}) AND container_name IS NOT NULL SINCE 1 day ago LIMIT 200"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Volume de logs por serviço",
+          "layout": {
+            "column": 1,
+            "row": 11,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM Log SELECT count(*) WHERE namespace_name = 'prod' FACET container_name TIMESERIES SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "CPU e memória dos 3 serviços",
+          "layout": {
+            "column": 7,
+            "row": 11,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  8510401
+                ],
+                "query": "FROM K8sContainerSample SELECT average(cpuUsedCores) AS 'CPU (cores)', average(memoryWorkingSetBytes) / 1e6 AS 'Memória (MB)' WHERE containerName IN ('oficina-os-service', 'oficina-billing-service', 'oficina-execucao-service') FACET containerName TIMESERIES SINCE 3 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
           }
         }
       ]

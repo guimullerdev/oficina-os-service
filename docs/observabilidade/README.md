@@ -22,7 +22,7 @@ substituir os `"accountIds": [8510401]`.
 
 ## De onde vem cada dado
 
-O PDF exige três painéis nominais. Vale saber a origem de cada um, porque
+O PDF da Fase 3 exige três painéis nominais; a Fase 4 acrescenta a página **Saga e mensageria** (saga, filas e rastreamento entre os 3 serviços). Vale saber a origem de cada um, porque
 dois vêm de coisas que a aplicação emite de propósito — se alguém remover a
 emissão, o painel não quebra, ele simplesmente esvazia.
 
@@ -32,6 +32,8 @@ emissão, o painel não quebra, ele simplesmente esvazia.
 | Tempo médio por status | `Log` com `event = 'os.status.transicao'` | `OsStatusMetricsInterceptor` |
 | Erros e falhas | `Log` com `event` em (`os.processamento.falha`, `requisicao.falha`) | `HttpExceptionFilter` |
 | Painel da saga (passos e desfecho) | `Log` com `event = 'saga.passo.transicao'` (`sagaId`, `osId`, `passo`, `ordem`, `statusAnterior`, `statusNovo`, `correlationId`) e `event = 'saga.status'` (`sagaId`, `osId`, `statusAnterior`, `statusNovo`, `correlationId`); `statusAnterior` nulo na criação | `SagaMetrics`, logado só depois do commit da transação que gravou a transição (`SagaOrchestrator.emitirTransicoes`) |
+| Profundidade das DLQs e backlog das filas | `Metric` `aws.sqs.ApproximateNumberOfMessagesVisible` por `aws.sqs.QueueName` (`LIKE '%dlq'` / `NOT LIKE`) | integração AWS do New Relic (polling de 5 min), root `oficina-infra-k8s/observabilidade/`; a mesma métrica alimenta o alerta `Mensagem parada em DLQ` |
+| Rastreamento por `correlationId` | `Log` com `allColumnSearch({{correlationId}})`: campo `correlationId` no JSON do OS e texto `correlationId=<id>` nas mensagens do Billing e da Execução | `nestjs-pino` (OS) e `Logger` do Nest (Billing, Execução), via `newrelic-logging` do cluster |
 
 ### Por que o tempo médio por status precisou de código
 
@@ -79,3 +81,11 @@ constante, até o alerta virar algo que todo mundo ignora.
   feito pelo pipeline de `oficina-infra-k8s` via Helm
 - Tráfego real: em ambiente recém-criado, gerar chamadas antes de gravar o
   vídeo, senão os painéis aparecem vazios
+
+### Duplicidade dos logs do OS
+
+O OS chega ao New Relic por dois caminhos: o `newrelic-logging` do cluster
+(com `container_name`) e o *logs in context* do agente APM (sem
+`container_name`). Por isso os widgets de saga filtram
+`container_name = 'oficina-os-service'` e o rastreamento exige
+`container_name IS NOT NULL`: sem isso cada evento aparece duas vezes.
