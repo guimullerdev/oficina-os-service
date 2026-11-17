@@ -8,6 +8,7 @@ export interface SagaPasso {
 }
 
 export interface SagaResponse {
+  status?: string;
   passos?: SagaPasso[];
 }
 
@@ -32,6 +33,9 @@ const config = {
   topicArn:
     process.env.BILLING_TOPIC_ARN ??
     'arn:aws:sns:us-east-1:000000000000:oficina-billing-events',
+  execucaoTopicArn:
+    process.env.EXECUCAO_TOPIC_ARN ??
+    'arn:aws:sns:us-east-1:000000000000:oficina-execucao-events',
 };
 
 const STAFF_EMAIL = 'mecanico@oficina.com';
@@ -153,7 +157,10 @@ export class SagaWorld extends World {
     }
   }
 
-  async publicarEvento(evento: string): Promise<void> {
+  async publicarEvento(
+    evento: string,
+    topicArn: string = config.topicArn,
+  ): Promise<void> {
     const attr = (value: string) => ({
       DataType: 'String',
       StringValue: value,
@@ -161,7 +168,7 @@ export class SagaWorld extends World {
     const traceId = randomUUID().replace(/-/g, '');
     await this.sns.send(
       new PublishCommand({
-        TopicArn: config.topicArn,
+        TopicArn: topicArn,
         Message: JSON.stringify({ osId: this.osId }),
         MessageAttributes: {
           evento: attr(evento),
@@ -181,5 +188,7 @@ export class SagaWorld extends World {
     return this.api<SagaResponse>('GET', `/os/${this.osId}/saga`);
   }
 }
+
+export const EXECUCAO_TOPIC_ARN = config.execucaoTopicArn;
 
 setWorldConstructor(SagaWorld);
