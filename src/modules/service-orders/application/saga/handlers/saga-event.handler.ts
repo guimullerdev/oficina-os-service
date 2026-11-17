@@ -23,6 +23,14 @@ export type AoCompensar = (
   ctx?: HandlerContext,
 ) => Promise<void>;
 
+/**
+ * Ponto de extensão para o avanço da OS no caminho feliz (APROVADA,
+ * EM_EXECUCAO, FINALIZADA). Mesmo contrato do AoCompensar: dentro da mesma
+ * transação, apenas quando a saga foi encontrada; quem implementa decide, pelo
+ * evento e pela decisão, se há o que mover.
+ */
+export type AoAvancar = AoCompensar;
+
 export const EVENTOS_RECEBIDOS_PELA_SAGA: readonly string[] = [
   EVENTOS_SAGA.ORCAMENTO_GERADO,
   EVENTOS_SAGA.ORCAMENTO_APROVADO,
@@ -53,6 +61,7 @@ export class SagaEventHandler implements MessageHandler {
     readonly evento: string,
     private readonly orchestrator: SagaOrchestrator,
     private readonly aoCompensar?: AoCompensar,
+    private readonly aoAvancar?: AoAvancar,
   ) {}
 
   async handle(
@@ -88,13 +97,16 @@ export class SagaEventHandler implements MessageHandler {
       ctx.afterCommit(() => this.orchestrator.emitirTransicoes(transicoes));
     }
     await this.aoCompensar?.(resultado, message, tx, ctx);
+    await this.aoAvancar?.(resultado, message, tx, ctx);
   }
 }
 
 export const criarSagaEventHandlers = (
   orchestrator: SagaOrchestrator,
   aoCompensar?: AoCompensar,
+  aoAvancar?: AoAvancar,
 ): SagaEventHandler[] =>
   EVENTOS_RECEBIDOS_PELA_SAGA.map(
-    (evento) => new SagaEventHandler(evento, orchestrator, aoCompensar),
+    (evento) =>
+      new SagaEventHandler(evento, orchestrator, aoCompensar, aoAvancar),
   );

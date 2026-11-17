@@ -150,6 +150,94 @@ describe('SagaEventHandler', () => {
     expect(aoCompensar).toHaveBeenCalledWith(encontrada, msg(), tx, ctx);
   });
 
+  describe('aoAvancar', () => {
+    it('hands (resultado, message, tx, ctx) to aoAvancar when the saga is found', async () => {
+      const { orchestrator } = makeOrchestrator();
+      const aoAvancar = jest.fn().mockResolvedValue(undefined);
+      const tx = {};
+      const { ctx } = ctxFake();
+      const handler = new SagaEventHandler(
+        'orcamento.aprovado',
+        orchestrator,
+        undefined,
+        aoAvancar,
+      );
+
+      await handler.handle(msg(), tx, ctx);
+
+      expect(aoAvancar).toHaveBeenCalledTimes(1);
+      expect(aoAvancar).toHaveBeenCalledWith(encontrada, msg(), tx, ctx);
+    });
+
+    it('does not call aoAvancar when the saga is not found', async () => {
+      const { orchestrator } = makeOrchestrator({
+        encontrada: false,
+        motivo: 'sem saga',
+      });
+      const aoAvancar = jest.fn();
+      const handler = new SagaEventHandler(
+        'orcamento.aprovado',
+        orchestrator,
+        undefined,
+        aoAvancar,
+      );
+
+      await handler.handle(msg(), {});
+
+      expect(aoAvancar).not.toHaveBeenCalled();
+    });
+
+    it('does not call aoAvancar when aplicarEvento rejects', async () => {
+      const { orchestrator, aplicarEvento } = makeOrchestrator();
+      aplicarEvento.mockRejectedValueOnce(new Error('boom'));
+      const aoAvancar = jest.fn();
+      const handler = new SagaEventHandler(
+        'orcamento.aprovado',
+        orchestrator,
+        undefined,
+        aoAvancar,
+      );
+
+      await expect(handler.handle(msg(), {})).rejects.toThrow('boom');
+      expect(aoAvancar).not.toHaveBeenCalled();
+    });
+
+    it('calls aoAvancar after aoCompensar and propagates its error', async () => {
+      const { orchestrator } = makeOrchestrator();
+      const ordem: string[] = [];
+      const aoCompensar = jest.fn(async () => {
+        ordem.push('compensar');
+      });
+      const aoAvancar = jest.fn(async () => {
+        ordem.push('avancar');
+        throw new Error('avanco');
+      });
+      const handler = new SagaEventHandler(
+        'orcamento.aprovado',
+        orchestrator,
+        aoCompensar,
+        aoAvancar,
+      );
+
+      await expect(handler.handle(msg(), {})).rejects.toThrow('avanco');
+      expect(ordem).toEqual(['compensar', 'avancar']);
+    });
+
+    it('wires aoAvancar into every created handler', async () => {
+      const { orchestrator } = makeOrchestrator();
+      const aoAvancar = jest.fn().mockResolvedValue(undefined);
+      const handlers = criarSagaEventHandlers(
+        orchestrator,
+        undefined,
+        aoAvancar,
+      );
+
+      await handlers[0].handle(msg());
+
+      expect(aoAvancar).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('emissão das métricas da saga', () => {
     const transicoes = (encontrada as { transicoes: unknown }).transicoes;
 

@@ -19,6 +19,7 @@ import { OrdemDeServicoPrismaRepository } from './infrastructure/repositories/se
 import { ServiceOrdersController } from './presentation/service-orders.controller';
 import { SagaOrchestrator } from './application/saga/saga-orchestrator.service';
 import { SagaMetrics } from './application/saga-metrics.service';
+import { SagaAvancadorOs } from './application/saga/saga-avancador-os';
 import { SagaCompensador } from './application/saga/saga-compensador';
 import { SagaTimeoutScheduler } from './application/saga/saga-timeout.scheduler';
 import { SagaPrismaRepository } from './application/saga/saga.repository';
@@ -108,9 +109,11 @@ import { GetSagaUseCase } from './application/saga/get-saga.usecase';
         metrics: OsStatusMetrics,
       ) => {
         const compensador = new SagaCompensador(osRepo, metrics);
+        const avancador = new SagaAvancadorOs(osRepo, metrics);
         const handlers = criarSagaEventHandlers(
           orchestrator,
           compensador.aoCompensar,
+          avancador.aoAvancar,
         );
         handlers.forEach((h) => registry.register(h));
         return handlers;
